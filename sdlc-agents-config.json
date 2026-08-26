@@ -1,0 +1,5 @@
+{
+  "$schema": "schemas/sdlc-agents-config.schema.json",
+  "artifact_tracking_mode": "github",
+  "hitl_mode": "strict"
+}

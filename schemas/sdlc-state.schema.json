@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SDLC Runtime State Schema",
+  "type": "object",
+  "required": [
+    "current_phase",
+    "hitl_mode",
+    "status",
+    "tracking_mode"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URI reference to the JSON Schema definition."
+    },
+    "current_phase": {
+      "type": "string",
+      "enum": [
+        "Step 0",
+        "Step 1",
+        "Step 2",
+        "Step 3",
+        "Step 4",
+        "Step 5",
+        "Completed"
+      ],
+      "description": "Current phase of the SDLC workflow."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "IN_PROGRESS",
+        "WAITING_FOR_CLARIFICATION",
+        "COMPLETED",
+        "FAILED"
+      ],
+      "description": "Current operational status of the workflow."
+    },
+    "hitl_mode": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "autonomous",
+        "exception_only"
+      ],
+      "description": "Human-In-The-Loop autonomy level governing workflow execution pacing."
+    },
+    "tracking_mode": {
+      "type": "string",
+      "enum": [
+        "local",
+        "github",
+        "gitlab"
+      ],
+      "description": "Target platform for tracking deliverables and artifacts."
+    },
+    "active_issue_id": {
+      "type": [
+        "string",
+        "null",
+        "integer"
+      ],
+      "description": "Active issue identifier (e.g., '#27', 'N/A', or null)."
+    },
+    "checkpoints": {
+      "type": "object",
+      "description": "Checkpoints for active tasks and review/remediation status.",
+      "properties": {
+        "active_tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "task_id",
+              "title",
+              "status"
+            ],
+            "properties": {
+              "task_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PENDING",
+                  "IN_PROGRESS",
+                  "COMPLETED",
+                  "FAILED"
+                ]
+              },
+              "assignee": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "review_remediation": {
+          "type": "object",
+          "properties": {
+            "iteration_counter": {
+              "type": "string"
+            },
+            "circuit_breaker_status": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "TRIPPED"
+              ]
+            },
+            "active_findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "finding_id",
+                  "description",
+                  "remediation_status"
+                ],
+                "properties": {
+                  "finding_id": {
+                    "type": "string"
+                  },
+                  "pillar": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "remediation_status": {
+                    "type": "string",
+                    "enum": [
+                      "OPEN",
+                      "FIXED"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

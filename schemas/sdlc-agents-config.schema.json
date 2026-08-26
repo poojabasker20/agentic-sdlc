@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SDLC Agents Configuration Schema",
+  "type": "object",
+  "required": [
+    "artifact_tracking_mode",
+    "hitl_mode"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URI reference to the JSON Schema definition."
+    },
+    "artifact_tracking_mode": {
+      "type": "string",
+      "enum": [
+        "local",
+        "github",
+        "gitlab"
+      ],
+      "description": "Target platform for tracking deliverables and artifacts (e.g., issues, user stories, review reports)."
+    },
+    "hitl_mode": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "autonomous",
+        "exception_only"
+      ],
+      "description": "Human-In-The-Loop (HITL) autonomy level governing workflow execution pacing."
+    }
+  },
+  "additionalProperties": false
+}
