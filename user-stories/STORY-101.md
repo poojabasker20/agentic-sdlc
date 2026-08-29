@@ -7,7 +7,7 @@
 ## 1. Description
 
 **As an** International Client Application & Portal Consumer,  
-**I want to** request localized, time-aware greetings with optional formal titles via query parameters, Accept-Language headers, and client timezone headers,  
+**It is required that** localized, time-aware greetings with optional formal titles are served via query parameters, Accept-Language headers, and client timezone headers,  
 **So that** international users receive a polite, culturally resonant, and personalized onboarding experience across European markets without breaking legacy integrations.
 
 ## 2. Business Context & Background
@@ -20,13 +20,13 @@ As part of the European market expansion across Spain, France, Germany, and the 
   - **Given** The Greeting service is operational and a legacy client sends a GET request to `/` or `/hello` without localization, title, or timezone parameters
   - **When** The request is processed
   - **Then** HTTP status 200 OK is returned and response payload equals `{"message": "Hello, World!", "recipient": "World"}`
-- **AC2: Explicit Language and Time-Aware Greeting**
-  - **Given** A client specifies a supported language (e.g., `lang=es`), `timeOfDay=morning` or an `X-Timezone` header corresponding to morning hours, and recipient Carlos
-  - **When** A GET request is sent to `/hello?name=Carlos&lang=es&timeOfDay=morning`
+- **AC2: Explicit Language and Timezone-Inferred Greeting**
+  - **Given** A client specifies a supported language (e.g., `lang=es`), an `X-Timezone` header corresponding to morning hours (e.g., `Europe/Madrid`), and recipient Carlos
+  - **When** A GET request is sent to `/hello?name=Carlos&lang=es` with `X-Timezone: Europe/Madrid`
   - **Then** HTTP status 200 OK is returned and response payload contains `{"message": "Buenos días, Carlos!", "recipient": "Carlos"}`
 - **AC3: Greeting with Professional Title and Salutation**
-  - **Given** A client specifies `name=Schmidt`, `title=Dr.`, `lang=de`, and an afternoon time indicator or `X-Timezone` header
-  - **When** A GET request is sent to `/hello?name=Schmidt&title=Dr.&lang=de&timeOfDay=afternoon`
+  - **Given** A client specifies `name=Schmidt`, `title=Dr.`, `lang=de`, and an `X-Timezone` header evaluated during afternoon hours (e.g., `Europe/Berlin`)
+  - **When** A GET request is sent to `/hello?name=Schmidt&title=Dr.&lang=de` with `X-Timezone: Europe/Berlin`
   - **Then** HTTP status 200 OK is returned and response payload contains `{"message": "Guten Tag, Dr. Schmidt!", "recipient": "Dr. Schmidt"}`
 - **AC4: Header-Based Language and Automatic Timezone Resolution**
   - **Given** No explicit `lang` query parameter is supplied, `Accept-Language` is set to `fr-FR, fr;q=0.9`, and `X-Timezone` header is set to `Europe/Paris`
@@ -43,7 +43,7 @@ As part of the European market expansion across Spain, France, Germany, and the 
 
 ## 4. Technical Constraints & Out of Scope
 
-- **Constraints:** Must reside strictly within `com.nordea.demo.helloworld`, preserve immutable `Greeting(String message, String recipient)` payload structure, meet p99 < 50ms latency SLA, infer timezone from client headers (e.g., `X-Timezone`), and output telemetry via structured application logs.
+- **Constraints:** Must reside strictly within `com.nordea.demo.helloworld` package space, preserve immutable `Greeting(String message, String recipient)` payload structure, meet p99 < 50ms latency SLA, infer time-of-day automatically from client timezone headers (e.g., `X-Timezone`), and output telemetry via structured application logs.
 - **Out of Scope:** Database persistence, OAuth2 token issuance, client IP geocoding, and frontend UI components.
 
 ## 5. Design & UI/UX (If applicable)
@@ -70,5 +70,6 @@ As part of the European market expansion across Spain, France, Germany, and the 
 
 ## 9. Revision Changelog
 
+- _v1.2: Addressed PR review feedback from @poojabasker20 — eliminated all first-person pronouns in favor of passive voice phrasing, enforced automatic inference of time-of-day from client timezone headers (`X-Timezone`), confirmed structured application logging telemetry, and updated revision logs._
 - _v1.1: Addressed PR review feedback from @poojabasker20 — removed first-person phrasing in story description, incorporated automatic timezone header inference for time-of-day greetings, resolved telemetry mechanism to structured application logs, and updated acceptance criteria accordingly._
 - _v1.0: Initial PR creation for review._
