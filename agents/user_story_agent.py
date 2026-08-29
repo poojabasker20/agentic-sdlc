@@ -77,7 +77,7 @@ class UserStoryRefinerAgent:
       raise ValueError("Neither Google Cloud Project ID nor GEMINI_API_KEY was provided.")
 
   def _invoke_llm(self, prompt: str) -> UserStoryPayload:
-    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.7-flash"]
+    candidate_models = [ "gemini-3.7-flash"]
     ast_context = query_codebase_ast()
     full_prompt = f"{prompt}\n\n[Codebase AST Context]:\n{ast_context}"
 
