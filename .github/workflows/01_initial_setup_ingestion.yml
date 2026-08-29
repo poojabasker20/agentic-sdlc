@@ -71,6 +71,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SDLC_GOVERNANCE_REPO: ${{ github.repository }}
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
         run: |
           python -c "
           from utils.doc_parser import PdfParserService

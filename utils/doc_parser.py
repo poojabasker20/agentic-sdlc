@@ -36,20 +36,42 @@ class PdfParserService:
     self._bucket = None
     self.vision_model = vision_model
 
-    project_id = gcp_project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+    project_id = (
+        gcp_project_id
+        or os.getenv("GOOGLE_CLOUD_PROJECT")
+        or os.getenv("GCP_PROJECT")
+        or os.getenv("GCLOUD_PROJECT")
+    )
     location = gcp_location or os.getenv(
         "GOOGLE_CLOUD_LOCATION", "europe-north1"
     )
+
+    if not project_id:
+      try:
+        import google.auth
+        _, auth_project = google.auth.default()
+        project_id = auth_project
+      except Exception:
+        pass
 
     if project_id:
       try:
         self.genai_client = genai.Client(
             vertexai=True, project=project_id, location=location
         )
+        logger.info("Initialized Vertex AI GenAI client (project=%s, location=%s)", project_id, location)
       except Exception as e:
-        logger.warning("Vertex AI GenAI client initialization skipped: %s", e)
+        logger.warning("Vertex AI GenAI client initialization failed: %s", e)
+        self.genai_client = None
+    elif os.getenv("GEMINI_API_KEY"):
+      try:
+        self.genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        logger.info("Initialized GenAI client with GEMINI_API_KEY")
+      except Exception as e:
+        logger.warning("GenAI client initialization with API key failed: %s", e)
         self.genai_client = None
     else:
+      logger.warning("No Google Cloud Project or GEMINI_API_KEY found; diagram vision parsing will be disabled.")
       self.genai_client = None
 
   @property
@@ -84,15 +106,13 @@ class PdfParserService:
           page_num = page_idx + 1
           page_lines: List[str] = [f"## Page {page_num}\n"]
 
-          if page_idx < len(pymupdf_doc):
+          if page_idx < len(pymupdf_doc) and self.genai_client:
             pymupdf_page = pymupdf_doc[page_idx]
             images = pymupdf_page.get_images()
-            # Filter for significant diagram-sized images (>100px)
-            has_significant_images = any(
-                img[2] > 100 and img[3] > 100 for img in images
-            ) if images else False
+            drawings = pymupdf_page.get_drawings()
+            has_visuals = bool(images) or (len(drawings) > 3)
 
-            if has_significant_images and self.genai_client:
+            if has_visuals:
               diagram_summary = self._describe_page_diagrams(
                   pymupdf_page, page_num
               )
@@ -123,15 +143,17 @@ class PdfParserService:
     return self._stitch_multipage_code_blocks(full_markdown)
 
   def _describe_page_diagrams(self, pymupdf_page, page_num: int) -> Optional[str]:
+    if not self.genai_client:
+      return None
     try:
       pix = pymupdf_page.get_pixmap(dpi=150)
       img_bytes = pix.tobytes("png")
 
       prompt = (
-          "Examine this page image from a technical specification. If it"
-          " contains flowcharts, architecture diagrams, sequence diagrams, or"
-          " data flows, provide a detailed text description of entities,"
-          " arrows, and connections. If none, respond 'NO_DIAGRAMS'."
+          "Examine this page image from an engineering technical specification document. "
+          "If this page contains an architecture diagram, flowchart, sequence diagram, component model, or data flow, "
+          "provide a comprehensive Markdown description of the architecture components, layers, connections, entities, and data flows. "
+          "If there are NO diagrams or charts on this page, respond with exact text 'NO_DIAGRAMS'."
       )
 
       response = self.genai_client.models.generate_content(
@@ -148,7 +170,7 @@ class PdfParserService:
       return (
           None
           if "NO_DIAGRAMS" in description
-          else f"> **[Diagram Description - Page {page_num}]**:\n{description}"
+          else f"> **[Architecture Diagram & Component Flow - Page {page_num}]**:\n{description}"
       )
     except Exception as e:
       logger.warning("[!] Vision parsing skipped for page %d: %s", page_num, e)
