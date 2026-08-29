@@ -149,21 +149,21 @@ _Use Behavior-Driven Development (BDD) format (Given / When / Then). Each criter
 
 ## 7. Open Questions & Clarifications Needed
 
-_List explicit questions or ambiguous requirements that human reviewers should clarify via GitHub PR comments._
+List explicit questions or ambiguous requirements that human reviewers should clarify via GitHub PR comments.
 
 - [ ] **Q1:** [Specific question regarding missing business logic, fallback values, or permissions]
 - [ ] **Q2:** [Specific edge case or optional boundary needing clarification]
 
 ## 8. Agent Assumptions Made
 
-_List technical or business assumptions made by the agent during generation due to missing or implicit context._
+List technical or business assumptions made by the agent during generation due to missing or implicit context.
 
 - **Assumption 1:** [Implicit behavior assumed, e.g., "Default page size is 20 if omitted"]
 - **Assumption 2:** [Architectural assumption, e.g., "Error payload follows standard GlobalExceptionHandler schema"]
 
 ## 9. Revision Changelog
 
-- _v1.0: Initial PR creation for review._
+- v1.0: Initial PR creation for review.
 ```
 
 ## 10. Done When Checklist
