@@ -13,9 +13,17 @@ on:
         required: true
         default: "goals/GOAL-101.md"
 
-  # Trigger on PR Review Comments (for REVISE mode)
+  # PR Conversation comments
   issue_comment:
     types: [created]
+
+  # Inline Code Diff comments
+  pull_request_review_comment:
+    types: [created]
+
+  # Submitted PR Reviews
+  pull_request_review:
+    types: [submitted]
 
 jobs:
   refine-user-story:
@@ -24,10 +32,12 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        !endsWith(github.event.comment.user.login, '[bot]') &&
-        !startsWith(github.event.comment.body, '🤖')
+        (
+          (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
+          github.event_name == 'pull_request_review_comment' ||
+          github.event_name == 'pull_request_review'
+        ) &&
+        !endsWith(github.actor, '[bot]')
       )
     runs-on: ubuntu-latest
     permissions:
@@ -68,7 +78,7 @@ jobs:
           STORY_ID: ${{ inputs.story_id }}
           GOAL_FILE: ${{ inputs.goal_file }}
           EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
         run: |
           python -c "
           import os, glob, re
@@ -87,8 +97,8 @@ jobs:
                       doc_sections.append(f.read().strip())
           context_docs = '\n\n---\n\n'.join(doc_sections) if doc_sections else 'Spring Boot 3.x REST API conventions.'
 
-          # Handle PR Comment Trigger (REVISE mode)
-          if event_name == 'issue_comment':
+          # Handle PR Comments & Reviews (REVISE mode)
+          if event_name in ['issue_comment', 'pull_request_review_comment', 'pull_request_review']:
               pr_number = int(os.getenv('PR_NUMBER', '0'))
               pr = agent.publisher.repo.get_pull(pr_number)
               match = re.search(r'story-([a-zA-Z0-9\-]+)', pr.head.ref, re.I)
