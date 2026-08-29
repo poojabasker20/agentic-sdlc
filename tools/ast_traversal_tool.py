@@ -2,7 +2,6 @@
 
 import os
 from typing import Optional
-from google.adk.tools import FunctionTool
 from utils.github_publisher import GitHubPublisherService
 
 
@@ -75,7 +74,6 @@ class ASTTraversalTool:
     )
 
 
-@FunctionTool
 def query_codebase_ast(
     class_name: Optional[str] = None,
     keyword: Optional[str] = None,

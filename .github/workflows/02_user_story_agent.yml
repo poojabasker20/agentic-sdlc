@@ -63,6 +63,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SDLC_GOVERNANCE_REPO: ${{ github.repository }}
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID || secrets.GCP_PROJECT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           STORY_ID: ${{ inputs.story_id }}
           GOAL_FILE: ${{ inputs.goal_file }}
           EVENT_NAME: ${{ github.event_name }}

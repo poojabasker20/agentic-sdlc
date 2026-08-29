@@ -1,9 +1,11 @@
-"""Stage 1 User Story Refiner Agent runner using Google ADK and GitHub."""
+"""Stage 1 User Story Refiner Agent runner using google-genai and GitHub."""
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
-from google.adk.agents import Agent
+from google import genai
+from google.genai import types
 from schemas.user_story_schema import UserStoryPayload
 from tools.ast_traversal_tool import query_codebase_ast
 from utils.github_publisher import GitHubPublisherService
@@ -15,6 +17,8 @@ class UserStoryRefinerAgent:
       self,
       github_token: Optional[str] = None,
       repo_name: Optional[str] = None,
+      gcp_project_id: Optional[str] = None,
+      gcp_location: str = "global",
   ):
     token = github_token or os.getenv("GITHUB_TOKEN", "")
     sdlc_repo = repo_name or os.getenv("SDLC_GOVERNANCE_REPO", "owner/agentic-sdlc")
@@ -31,13 +35,76 @@ class UserStoryRefinerAgent:
       skill_path = Path("skills/sdlc-user-story-refiner/SKILL.md")
 
     with open(skill_path, "r", encoding="utf-8") as f:
-      skill_instruction = f.read()
+      self.skill_instruction = f.read()
 
-    self.adk_agent = Agent(
-        model="gemini-3.7-flash",
-        system_instruction=skill_instruction,
-        tools=[query_codebase_ast],
-        response_schema=UserStoryPayload,
+    project_id = (
+        gcp_project_id
+        or os.getenv("GOOGLE_CLOUD_PROJECT")
+        or os.getenv("GCP_PROJECT")
+        or os.getenv("GCLOUD_PROJECT")
+    )
+    location = os.getenv("GOOGLE_CLOUD_LOCATION") or os.getenv("GCP_LOCATION") or gcp_location
+
+    if not project_id and not os.getenv("GEMINI_API_KEY"):
+      try:
+        import google.auth
+        _, auth_project = google.auth.default()
+        project_id = auth_project
+      except Exception as auth_err:
+        raise RuntimeError(
+            f"Failed to detect Google Cloud credentials for GenAI agent: {auth_err}"
+        ) from auth_err
+
+    if project_id:
+      try:
+        self.genai_client = genai.Client(
+            vertexai=True, project=project_id, location=location
+        )
+        print(f"✓ Initialized Vertex AI GenAI client (project={project_id}, location={location})")
+      except Exception as e:
+        raise RuntimeError(
+            f"Failed to initialize Vertex AI client with project='{project_id}' and location='{location}': {e}"
+        ) from e
+    elif os.getenv("GEMINI_API_KEY"):
+      try:
+        self.genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        print(f"✓ Initialized GenAI client with GEMINI_API_KEY")
+      except Exception as e:
+        raise RuntimeError(
+            f"Failed to initialize GenAI client with GEMINI_API_KEY: {e}"
+        ) from e
+    else:
+      raise ValueError("Neither Google Cloud Project ID nor GEMINI_API_KEY was provided.")
+
+  def _invoke_llm(self, prompt: str) -> UserStoryPayload:
+    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.7-flash"]
+    ast_context = query_codebase_ast()
+    full_prompt = f"{prompt}\n\n[Codebase AST Context]:\n{ast_context}"
+
+    errors = []
+    for model_name in candidate_models:
+      try:
+        config = types.GenerateContentConfig(
+            system_instruction=self.skill_instruction,
+            response_mime_type="application/json",
+            response_schema=UserStoryPayload,
+            temperature=0.2,
+        )
+        response = self.genai_client.models.generate_content(
+            model=model_name,
+            contents=full_prompt,
+            config=config,
+        )
+        data = json.loads(response.text)
+        print(f"✓ Successfully generated User Story using model `{model_name}`")
+        return UserStoryPayload(**data)
+      except Exception as err:
+        errors.append(f"{model_name}: {err}")
+        print(f"⚠️ Model `{model_name}` failed: {err}")
+        continue
+
+    raise RuntimeError(
+        f"User Story generation failed across all candidate models. Errors: {'; '.join(errors)}"
     )
 
   def run_stage(
@@ -77,8 +144,7 @@ class UserStoryRefinerAgent:
         {context_docs}
         """
 
-    response = self.adk_agent.run(prompt)
-    payload: UserStoryPayload = response.structured_output
+    payload: UserStoryPayload = self._invoke_llm(prompt)
 
     commit_msg = f"docs({story_id}): generate initial user story specification"
     self.publisher.commit_file(
@@ -144,14 +210,13 @@ class UserStoryRefinerAgent:
         {current_markdown}
         
         Human PR Reviewer Comments:
-{comments_str}
+        {comments_str}
         
         Architecture & Governance Context:
         {context_docs}
         """
 
-    response = self.adk_agent.run(prompt)
-    payload: UserStoryPayload = response.structured_output
+    payload: UserStoryPayload = self._invoke_llm(prompt)
 
     commit_msg = (
         f"docs({story_id}): update user story based on PR review feedback"
