@@ -7,39 +7,43 @@
 ## 1. Description
 
 **As an** International Client Application & Portal Consumer,  
-**I want to** request localized, time-aware greetings with optional formal titles via query parameters and Accept-Language headers,  
-**So that** deliver a polite, culturally resonant, and personalized onboarding experience across European markets without breaking legacy integrations.
+**I want to** request localized, time-aware greetings with optional formal titles via query parameters, Accept-Language headers, and client timezone headers,  
+**So that** international users receive a polite, culturally resonant, and personalized onboarding experience across European markets without breaking legacy integrations.
 
 ## 2. Business Context & Background
 
-As part of the European market expansion across Spain, France, Germany, and the Nordics, the greeting service requires modernization from a generic Anglo-centric message to culturally adaptive, localized salutations. The enhanced service supports major languages (English, Spanish, French, German, Swedish), time-of-day variations (morning, afternoon, evening), and professional honorifics, while preserving strict backward compatibility for existing consumers.
+As part of the European market expansion across Spain, France, Germany, and the Nordics, the greeting service requires modernization from a generic Anglo-centric message to culturally adaptive, localized salutations. The enhanced service supports major languages (English, Spanish, French, German, Swedish), time-of-day variations (morning, afternoon, evening) resolved automatically via client timezone headers or parameters, and professional honorifics, while preserving strict backward compatibility for existing consumers and capturing usage analytics via structured application audit logs.
 
 ## 3. Acceptance Criteria
 
 - **AC1: Backward Compatible Default Greeting**
-  - **Given** The Greeting service is operational and a legacy client sends a GET request to / or /hello without localization or title parameters
+  - **Given** The Greeting service is operational and a legacy client sends a GET request to `/` or `/hello` without localization, title, or timezone parameters
   - **When** The request is processed
-  - **Then** HTTP status 200 OK is returned and response payload equals {"message": "Hello, World!", "recipient": "World"}
+  - **Then** HTTP status 200 OK is returned and response payload equals `{"message": "Hello, World!", "recipient": "World"}`
 - **AC2: Explicit Language and Time-Aware Greeting**
-  - **Given** A client specifies a supported language (e.g., lang=es), timeOfDay=morning, and recipient Carlos
-  - **When** A GET request is sent to /hello?name=Carlos&lang=es&timeOfDay=morning
-  - **Then** HTTP status 200 OK is returned and response payload contains {"message": "Buenos días, Carlos!", "recipient": "Carlos"}
-- **AC3: Greeting with Professional Title / Salutation**
-  - **Given** A client specifies name=Schmidt, title=Dr., lang=de, and timeOfDay=afternoon
-  - **When** A GET request is sent to /hello?name=Schmidt&title=Dr.&lang=de&timeOfDay=afternoon
-  - **Then** HTTP status 200 OK is returned and response payload contains {"message": "Guten Tag, Dr. Schmidt!", "recipient": "Dr. Schmidt"}
-- **AC4: Header-Based Language Fallback Resolution**
-  - **Given** No explicit lang query parameter is supplied and Accept-Language header is set to fr-FR, fr;q=0.9
-  - **When** A GET request is sent to /hello/Marie
-  - **Then** HTTP status 200 OK is returned resolving French localization with recipient Marie
-- **AC5: Unsupported Language Fallback and Diagnostic Guidance**
-  - **Given** A client requests an unsupported language code (e.g., lang=xx)
-  - **When** A GET request is sent to /hello?lang=xx
-  - **Then** HTTP status 200 OK is returned falling back gracefully to English without system failure
+  - **Given** A client specifies a supported language (e.g., `lang=es`), `timeOfDay=morning` or an `X-Timezone` header corresponding to morning hours, and recipient Carlos
+  - **When** A GET request is sent to `/hello?name=Carlos&lang=es&timeOfDay=morning`
+  - **Then** HTTP status 200 OK is returned and response payload contains `{"message": "Buenos días, Carlos!", "recipient": "Carlos"}`
+- **AC3: Greeting with Professional Title and Salutation**
+  - **Given** A client specifies `name=Schmidt`, `title=Dr.`, `lang=de`, and an afternoon time indicator or `X-Timezone` header
+  - **When** A GET request is sent to `/hello?name=Schmidt&title=Dr.&lang=de&timeOfDay=afternoon`
+  - **Then** HTTP status 200 OK is returned and response payload contains `{"message": "Guten Tag, Dr. Schmidt!", "recipient": "Dr. Schmidt"}`
+- **AC4: Header-Based Language and Automatic Timezone Resolution**
+  - **Given** No explicit `lang` query parameter is supplied, `Accept-Language` is set to `fr-FR, fr;q=0.9`, and `X-Timezone` header is set to `Europe/Paris`
+  - **When** A GET request is sent to `/hello/Marie`
+  - **Then** HTTP status 200 OK is returned resolving French localization with time-appropriate greeting and recipient Marie
+- **AC5: Unsupported Language Fallback and Graceful Degradation**
+  - **Given** A client requests an unsupported language code (e.g., `lang=xx`)
+  - **When** A GET request is sent to `/hello?lang=xx`
+  - **Then** HTTP status 200 OK is returned falling back gracefully to English without system failure or blank messages
+- **AC6: Structured Application Audit Logging for Telemetry**
+  - **Given** A client request is processed with resolved language, title, and timezone metadata
+  - **When** The greeting response is generated
+  - **Then** A structured JSON log event is emitted containing timestamp, resolved language, timezone, action, and correlation_id without sensitive credential leakage
 
 ## 4. Technical Constraints & Out of Scope
 
-- **Constraints:** Must reside strictly in `com.nordea.demo.helloworld`, preserve immutable `Greeting(String message, String recipient)` payload structure, meet p99 < 50ms latency SLA, and maintain zero persistence stateless architecture.
+- **Constraints:** Must reside strictly within `com.nordea.demo.helloworld`, preserve immutable `Greeting(String message, String recipient)` payload structure, meet p99 < 50ms latency SLA, infer timezone from client headers (e.g., `X-Timezone`), and output telemetry via structured application logs.
 - **Out of Scope:** Database persistence, OAuth2 token issuance, client IP geocoding, and frontend UI components.
 
 ## 5. Design & UI/UX (If applicable)
@@ -56,14 +60,15 @@ As part of the European market expansion across Spain, France, Germany, and the 
 
 ## 7. Open Questions & Clarifications Needed
 
-- [ ] **Q1:** Should `timeOfDay` be strictly a query parameter or inferred automatically from server/client timezone headers?
-- [ ] **Q2:** Should language usage analytics be captured via Micrometer metrics or structured application audit logs?
+- _All previous reviewer questions have been resolved._
 
 ## 8. Agent Assumptions Made
 
-- **Assumption 1:** Supported locales default to English (`en`), Spanish (`es`), French (`fr`), German (`de`), and Swedish (`sv`), defaulting to English if unmatched.
-- **Assumption 2:** The existing DTO schema `Greeting` remains unchanged to guarantee complete backward compatibility.
+- **Assumption 1:** Client time-of-day is inferred automatically from client timezone headers (e.g., `X-Timezone`, `ZoneId`) with query parameter override support.
+- **Assumption 2:** Language and market usage insights are emitted via structured application logs rather than a separate metrics store.
+- **Assumption 3:** Supported locales include English (`en`), Spanish (`es`), French (`fr`), German (`de`), and Swedish (`sv`), falling back gracefully to English if unmatched.
 
 ## 9. Revision Changelog
 
+- _v1.1: Addressed PR review feedback from @poojabasker20 — removed first-person phrasing in story description, incorporated automatic timezone header inference for time-of-day greetings, resolved telemetry mechanism to structured application logs, and updated acceptance criteria accordingly._
 - _v1.0: Initial PR creation for review._
