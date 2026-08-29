@@ -22,7 +22,7 @@ class PdfParserService:
       github_token: Optional[str] = None,
       github_repo_name: Optional[str] = None,
       gcp_project_id: Optional[str] = None,
-      gcp_location: str = "europe-west1",
+      gcp_location: str = "europe-north1",
       vision_model: str = "gemini-3.7-flash",
   ):
     token = github_token or os.getenv("GITHUB_TOKEN", "")
@@ -38,7 +38,7 @@ class PdfParserService:
 
     project_id = gcp_project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
     location = gcp_location or os.getenv(
-        "GOOGLE_CLOUD_LOCATION", "europe-west1"
+        "GOOGLE_CLOUD_LOCATION", "europe-north1"
     )
 
     if project_id:
@@ -218,3 +218,34 @@ class PdfParserService:
         branch_name=target_github_branch,
     )
     return f"Successfully {action} `{github_file_path}` on branch `{target_github_branch}`."
+
+  def process_and_publish_all_bucket_documents(
+      self,
+      prefix: str = "",
+      target_github_branch: str = "main",
+      github_output_dir: str = "docs/",
+  ) -> List[str]:
+    """Iterates through all PDF files in the GCS bucket, parses each to Markdown, and commits to GitHub."""
+    blobs = list(self.bucket.list_blobs(prefix=prefix))
+    pdf_blobs = [b for b in blobs if b.name.lower().endswith(".pdf")]
+
+    if not pdf_blobs:
+      msg = f"No PDF files found in GCS bucket `{self.bucket_name}`."
+      logger.info(msg)
+      return [msg]
+
+    results = []
+    for blob in pdf_blobs:
+      try:
+        res = self.process_and_publish_document(
+            gcs_blob_name=blob.name,
+            target_github_branch=target_github_branch,
+            github_output_dir=github_output_dir,
+        )
+        results.append(res)
+      except Exception as e:
+        err_msg = f"Error parsing `{blob.name}`: {e}"
+        logger.error(err_msg)
+        results.append(err_msg)
+
+    return results

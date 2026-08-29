@@ -1,0 +1,104 @@
+name: 02 - Stage 1 User Story Refiner Agent
+
+on:
+  # Manual Trigger
+  workflow_dispatch:
+    inputs:
+      story_id:
+        description: "Story Identifier (e.g. STORY-101)"
+        required: true
+        default: "STORY-101"
+      goal_file:
+        description: "Path to goal document (e.g. goals/GOAL-101.md)"
+        required: true
+        default: "goals/GOAL-101.md"
+
+  # Trigger on PR Review Comments (for REVISE mode)
+  issue_comment:
+    types: [created]
+
+jobs:
+  refine-user-story:
+    name: Run User Story Refiner
+    # Prevent bot feedback loops
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        !endsWith(github.event.comment.user.login, '[bot]') &&
+        !startsWith(github.event.comment.body, '🤖')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout Governance Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute User Story Refiner Agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SDLC_GOVERNANCE_REPO: ${{ github.repository }}
+          STORY_ID: ${{ inputs.story_id }}
+          GOAL_FILE: ${{ inputs.goal_file }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          python -c "
+          import os, glob, re
+          from agents.user_story_agent import UserStoryRefinerAgent
+
+          token = os.getenv('GITHUB_TOKEN', '')
+          sdlc_repo = os.getenv('SDLC_GOVERNANCE_REPO', 'owner/agentic-sdlc')
+          event_name = os.getenv('EVENT_NAME', 'workflow_dispatch')
+          agent = UserStoryRefinerAgent(github_token=token, repo_name=sdlc_repo)
+
+          # Aggregate context docs from docs/
+          doc_sections = []
+          for md_file in sorted(glob.glob('docs/**/*.md', recursive=True)):
+              if 'AST_CODE_MAP' not in md_file:
+                  with open(md_file, 'r', encoding='utf-8') as f:
+                      doc_sections.append(f.read().strip())
+          context_docs = '\n\n---\n\n'.join(doc_sections) if doc_sections else 'Spring Boot 3.x REST API conventions.'
+
+          # Handle PR Comment Trigger (REVISE mode)
+          if event_name == 'issue_comment':
+              pr_number = int(os.getenv('PR_NUMBER', '0'))
+              pr = agent.publisher.repo.get_pull(pr_number)
+              match = re.search(r'story-([a-zA-Z0-9\-]+)', pr.head.ref, re.I)
+              story_id = f'STORY-{match.group(1).upper()}' if match else f'PR-{pr.number}'
+              pm_goal = f'Refine user story based on reviewer feedback on PR #{pr.number}'
+              result = agent.run_stage(story_id=story_id, pm_goal=pm_goal, context_docs=context_docs)
+              print('Revise Mode Result:', result)
+
+          # Handle Manual Dispatch (CREATE mode)
+          else:
+              story_id = os.getenv('STORY_ID', 'STORY-101')
+              goal_file = os.getenv('GOAL_FILE', 'goals/GOAL-101.md')
+              pm_goal = ''
+              if os.path.exists(goal_file):
+                  with open(goal_file, 'r', encoding='utf-8') as f:
+                      pm_goal = f.read()
+              else:
+                  pm_goal = f'Feature specification for {story_id}'
+
+              result = agent.run_stage(story_id=story_id, pm_goal=pm_goal, context_docs=context_docs)
+              print('Create Mode Result:', result)
+          "
