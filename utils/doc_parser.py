@@ -22,7 +22,7 @@ class PdfParserService:
       github_token: Optional[str] = None,
       github_repo_name: Optional[str] = None,
       gcp_project_id: Optional[str] = None,
-      gcp_location: str = "europe-north1",
+      gcp_location: str = "global",
       vision_model: str = "gemini-3.7-flash",
   ):
     token = github_token or os.getenv("GITHUB_TOKEN", "")
@@ -34,7 +34,7 @@ class PdfParserService:
     self.publisher = GitHubPublisherService(token, repo_name)
     self._gcs_client = None
     self._bucket = None
-    self.vision_model = vision_model
+    self.vision_model = os.getenv("GEMINI_VISION_MODEL", vision_model)
 
     project_id = (
         gcp_project_id
@@ -42,37 +42,31 @@ class PdfParserService:
         or os.getenv("GCP_PROJECT")
         or os.getenv("GCLOUD_PROJECT")
     )
-    location = gcp_location or os.getenv(
-        "GOOGLE_CLOUD_LOCATION", "europe-north1"
-    )
+    location = os.getenv("GOOGLE_CLOUD_LOCATION") or os.getenv("GCP_LOCATION") or gcp_location
 
-    if not project_id:
+    if not project_id and not os.getenv("GEMINI_API_KEY"):
       try:
         import google.auth
         _, auth_project = google.auth.default()
         project_id = auth_project
-      except Exception:
-        pass
+      except Exception as auth_err:
+        raise RuntimeError(
+            f"Failed to detect Google Cloud credentials for Vertex AI GenAI client. "
+            f"Please set GOOGLE_CLOUD_PROJECT. Details: {auth_err}"
+        ) from auth_err
 
     if project_id:
       try:
         self.genai_client = genai.Client(
             vertexai=True, project=project_id, location=location
         )
-        logger.info("Initialized Vertex AI GenAI client (project=%s, location=%s)", project_id, location)
+        print(f"✓ Initialized Vertex AI GenAI client (project={project_id}, location={location}, model={self.vision_model})")
       except Exception as e:
-        logger.warning("Vertex AI GenAI client initialization failed: %s", e)
-        self.genai_client = None
-    elif os.getenv("GEMINI_API_KEY"):
-      try:
-        self.genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        logger.info("Initialized GenAI client with GEMINI_API_KEY")
-      except Exception as e:
-        logger.warning("GenAI client initialization with API key failed: %s", e)
-        self.genai_client = None
+        raise RuntimeError(
+            f"Failed to initialize Vertex AI GenAI client with project='{project_id}' and location='{location}': {e}"
+        ) from e
     else:
-      logger.warning("No Google Cloud Project or GEMINI_API_KEY found; diagram vision parsing will be disabled.")
-      self.genai_client = None
+      raise ValueError("Neither Google Cloud Project ID was provided.")
 
   @property
   def bucket(self):
@@ -145,36 +139,53 @@ class PdfParserService:
   def _describe_page_diagrams(self, pymupdf_page, page_num: int) -> Optional[str]:
     if not self.genai_client:
       return None
-    try:
-      pix = pymupdf_page.get_pixmap(dpi=150)
-      img_bytes = pix.tobytes("png")
 
-      prompt = (
-          "Examine this page image from an engineering technical specification document. "
-          "If this page contains an architecture diagram, flowchart, sequence diagram, component model, or data flow, "
-          "provide a comprehensive Markdown description of the architecture components, layers, connections, entities, and data flows. "
-          "If there are NO diagrams or charts on this page, respond with exact text 'NO_DIAGRAMS'."
+    pix = pymupdf_page.get_pixmap(dpi=150)
+    img_bytes = pix.tobytes("png")
+
+    prompt = (
+        "Examine this page image from an engineering technical specification document. "
+        "If this page contains an architecture diagram, flowchart, sequence diagram, component model, or data flow, "
+        "provide a comprehensive Markdown description of the architecture components, layers, connections, entities, and data flows. "
+        "If there are NO diagrams or charts on this page, respond with exact text 'NO_DIAGRAMS'."
+    )
+
+    # Attempt with configured model, then fallback models
+    candidate_models = [self.vision_model, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.7-flash"]
+    seen = set()
+    models_to_try = [m for m in candidate_models if not (m in seen or seen.add(m))]
+
+    errors = []
+    description = None
+    for model_name in models_to_try:
+      try:
+        response = self.genai_client.models.generate_content(
+            model=model_name,
+            contents=[
+                prompt,
+                genai.types.Part.from_bytes(
+                    data=img_bytes, mime_type="image/png"
+                ),
+            ],
+        )
+        description = response.text.strip() if response.text else None
+        if description:
+          print(f"✓ Successfully extracted diagram description for Page {page_num} using model `{model_name}`")
+          break
+      except Exception as model_err:
+        errors.append(f"{model_name}: {model_err}")
+        print(f"⚠️ Model `{model_name}` failed for Page {page_num}: {model_err}")
+        continue
+
+    if description is None and errors:
+      raise RuntimeError(
+          f"Vision model extraction failed for diagram on Page {page_num}. "
+          f"Tried models: {'; '.join(errors)}"
       )
 
-      response = self.genai_client.models.generate_content(
-          model=self.vision_model,
-          contents=[
-              prompt,
-              genai.types.Part.from_bytes(
-                  data=img_bytes, mime_type="image/png"
-              ),
-          ],
-      )
-
-      description = response.text.strip()
-      return (
-          None
-          if "NO_DIAGRAMS" in description
-          else f"> **[Architecture Diagram & Component Flow - Page {page_num}]**:\n{description}"
-      )
-    except Exception as e:
-      logger.warning("[!] Vision parsing skipped for page %d: %s", page_num, e)
+    if not description or "NO_DIAGRAMS" in description:
       return None
+    return f"> **[Architecture Diagram & Component Flow - Page {page_num}]**:\n{description}"
 
   def _process_table(
       self, table: List[List[Optional[str]]], prev_headers: Optional[List[str]]
@@ -213,6 +224,8 @@ class PdfParserService:
         text,
         flags=re.M | re.I,
     )
+    # Remove stray "None" artifacts from PDF export containers
+    text = re.sub(r"^None\s*$", "", text, flags=re.M)
     text = re.sub(r"^(\d+\.[\d\.]*\s+[A-Z].*)$", r"### \1", text, flags=re.M)
     return text.strip()
 
