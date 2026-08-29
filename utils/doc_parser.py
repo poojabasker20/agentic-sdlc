@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from typing import List, Optional
-import fitz  # PyMuPDF
+import pymupdf
 from google import genai
 from google.cloud import storage
 import pdfplumber
@@ -32,8 +32,8 @@ class PdfParserService:
 
     self.bucket_name = gcs_bucket_name
     self.publisher = GitHubPublisherService(token, repo_name)
-    self.gcs_client = storage.Client()
-    self.bucket = self.gcs_client.bucket(gcs_bucket_name)
+    self._gcs_client = None
+    self._bucket = None
     self.vision_model = vision_model
 
     project_id = gcp_project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -42,11 +42,30 @@ class PdfParserService:
     )
 
     if project_id:
-      self.genai_client = genai.Client(
-          vertexai=True, project=project_id, location=location
-      )
+      try:
+        self.genai_client = genai.Client(
+            vertexai=True, project=project_id, location=location
+        )
+      except Exception as e:
+        logger.warning("Vertex AI GenAI client initialization skipped: %s", e)
+        self.genai_client = None
     else:
       self.genai_client = None
+
+  @property
+  def bucket(self):
+    """Lazily loads the GCS bucket client with clear credential error handling."""
+    if self._bucket is None:
+      try:
+        self._gcs_client = storage.Client()
+        self._bucket = self._gcs_client.bucket(self.bucket_name)
+      except Exception as e:
+        raise RuntimeError(
+            f"Failed to connect to GCS bucket '{self.bucket_name}'. "
+            f"Google Cloud Application Default Credentials (ADC) were not found or lack permissions. "
+            f"Error details: {e}"
+        )
+    return self._bucket
 
   def parse_pdf(self, pdf_bytes: bytes, source_filename: str) -> str:
     """Parses PDF bytes into structured LLM-ready Markdown."""
@@ -56,7 +75,7 @@ class PdfParserService:
         " grounding.*\n",
     ]
 
-    fitz_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    pymupdf_doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
       with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         previous_table_headers = None
@@ -65,9 +84,9 @@ class PdfParserService:
           page_num = page_idx + 1
           page_lines: List[str] = [f"## Page {page_num}\n"]
 
-          if page_idx < len(fitz_doc):
-            fitz_page = fitz_doc[page_idx]
-            images = fitz_page.get_images()
+          if page_idx < len(pymupdf_doc):
+            pymupdf_page = pymupdf_doc[page_idx]
+            images = pymupdf_page.get_images()
             # Filter for significant diagram-sized images (>100px)
             has_significant_images = any(
                 img[2] > 100 and img[3] > 100 for img in images
@@ -75,7 +94,7 @@ class PdfParserService:
 
             if has_significant_images and self.genai_client:
               diagram_summary = self._describe_page_diagrams(
-                  fitz_page, page_num
+                  pymupdf_page, page_num
               )
               if diagram_summary:
                 page_lines.append(
@@ -98,14 +117,14 @@ class PdfParserService:
 
           markdown_sections.append("\n".join(page_lines))
     finally:
-      fitz_doc.close()
+      pymupdf_doc.close()
 
     full_markdown = "\n\n---\n\n".join(markdown_sections)
     return self._stitch_multipage_code_blocks(full_markdown)
 
-  def _describe_page_diagrams(self, fitz_page, page_num: int) -> Optional[str]:
+  def _describe_page_diagrams(self, pymupdf_page, page_num: int) -> Optional[str]:
     try:
-      pix = fitz_page.get_pixmap(dpi=150)
+      pix = pymupdf_page.get_pixmap(dpi=150)
       img_bytes = pix.tobytes("png")
 
       prompt = (
