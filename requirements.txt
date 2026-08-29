@@ -1,0 +1,8 @@
+pydantic>=2.6.0
+PyGithub>=2.2.0
+tree-sitter>=0.21.3
+tree-sitter-java>=0.21.0
+google-genai>=0.1.1
+google-cloud-storage>=2.14.0
+pdfplumber>=0.10.3
+PyMuPDF>=1.23.8
