@@ -1,4 +1,4 @@
-name: 01 - Initial Setup & Context Ingestion (AST & Docs)
+name: Initial Setup & Context Ingestion (AST & Docs)
 
 on:
   workflow_dispatch:

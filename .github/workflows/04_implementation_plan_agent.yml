@@ -1,30 +1,42 @@
-name: Stage 1 User Story Refiner Agent
+name: Stage 3 Implementation Plan Generator & Verifier Agent
 
 on:
   # Manual Trigger
   workflow_dispatch:
     inputs:
       story_id:
-        description: "Story Identifier (e.g. STORY-101)"
+        description: "Parent Story Identifier (e.g. STORY-101)"
         required: true
         default: "STORY-101"
-      goal_file:
-        description: "Path to goal document (e.g. goals/GOAL-101.md)"
+      subtask_id:
+        description: "Target Subtask Identifier (e.g. SUBTASK-STORY-101-1)"
         required: true
-        default: "goals/GOAL-101.md"
+        default: "SUBTASK-STORY-101-1"
+      subtasks_file:
+        description: "Path to subtasks plan (e.g. tasks/STORY-101/subtasks.md)"
+        required: false
+        default: "tasks/STORY-101/subtasks.md"
+      story_file:
+        description: "Path to parent user story (e.g. user-stories/STORY-101.md)"
+        required: false
+        default: "user-stories/STORY-101.md"
+      target_codebase_repo:
+        description: "Target Codebase Repository"
+        required: false
+        default: "poojabasker20/springboot-hello-world"
 
-#   # Trigger ONLY once when the reviewer submits/publishes their PR review
-#   pull_request_review:
-#     types: [submitted]
+  # Trigger ONLY once when the reviewer submits/publishes their PR review
+  pull_request_review:
+    types: [submitted]
 
-# # Prevent duplicate / overlapping runs on the same PR
-# concurrency:
-#   group: user-story-agent-${{ github.event.pull_request.number || github.ref }}
-#   cancel-in-progress: true
+# Prevent duplicate / overlapping runs on the same PR
+concurrency:
+  group: user-plan-agent-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  refine-user-story:
-    name: Run User Story Refiner
+  generate-implementation-plan:
+    name: Run Implementation Plan Generator
     # Prevent bot feedback loops
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -66,8 +78,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SDLC_GOVERNANCE_REPO: ${{ github.repository }}
+          TARGET_CODEBASE_REPO: ${{ inputs.target_codebase_repo || vars.TARGET_CODEBASE_REPO || 'poojabasker20/springboot-hello-world' }}
           GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
-          GOOGLE_CLOUD_LOCATION: "global"
+          GOOGLE_CLOUD_LOCATION: "europe-west1"
         run: |
           nohup uvicorn api.main:app --host 0.0.0.0 --port 8000 > fastapi.log 2>&1 &
           echo "Waiting for FastAPI service to start..."
@@ -79,29 +92,32 @@ jobs:
             sleep 1
           done
 
-      - name: Execute User Story Refiner Agent (POST /api/v1/agent/user-story)
+      - name: Execute Implementation Plan Generator Agent (POST /api/v1/agent/implementation-plan)
         run: |
-          pr_num="${{ github.event.issue.number || github.event.pull_request.number }}"
+          pr_num="${{ github.event.pull_request.number }}"
           if [ -z "$pr_num" ]; then
             pr_num="null"
           fi
 
-          response=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:8000/api/v1/agent/user-story \
+          response=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:8000/api/v1/agent/implementation-plan \
             -H "Content-Type: application/json" \
             -d "{
-              \"story_id\": \"${{ inputs.story_id }}\",
-              \"goal_file\": \"${{ inputs.goal_file }}\",
+              \"story_id\": \"${{ inputs.story_id || 'STORY-101' }}\",
+              \"subtask_id\": \"${{ inputs.subtask_id || 'SUBTASK-STORY-101-1' }}\",
+              \"subtasks_file\": \"${{ inputs.subtasks_file || 'tasks/STORY-101/subtasks.md' }}\",
+              \"story_file\": \"${{ inputs.story_file || 'user-stories/STORY-101.md' }}\",
+              \"target_codebase_repo\": \"${{ inputs.target_codebase_repo || vars.TARGET_CODEBASE_REPO || 'poojabasker20/springboot-hello-world' }}\",
               \"sdlc_repo\": \"${{ github.repository }}\",
               \"event_name\": \"${{ github.event_name }}\",
               \"pr_number\": $pr_num
             }")
-          
+
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
           echo "Response ($http_code): $body"
-          
+
           if [ "$http_code" -ne 200 ]; then
-            echo "User Story Agent API request failed!"
+            echo "Implementation Plan Agent API request failed!"
             cat fastapi.log
             exit 1
           fi

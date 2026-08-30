@@ -7,6 +7,7 @@ import re
 from typing import Optional
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from agents.implementation_plan_agent import ImplementationPlanGeneratorAgent
 from agents.subtask_agent import SubtaskGeneratorAgent
 from agents.user_story_agent import UserStoryRefinerAgent
 from api.models import (
@@ -14,6 +15,8 @@ from api.models import (
     AstIngestionResponse,
     DocIngestionRequest,
     DocIngestionResponse,
+    ImplementationPlanRequest,
+    ImplementationPlanResponse,
     SubtaskRefineRequest,
     SubtaskRefineResponse,
     UserStoryRefineRequest,
@@ -261,4 +264,112 @@ def generate_subtasks(req: SubtaskRefineRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Subtask Agent execution failed: {str(e)}",
+        )
+
+
+@app.post(
+    "/api/v1/agent/implementation-plan",
+    response_model=ImplementationPlanResponse,
+    tags=["Agents"],
+    summary="Execute Stage 3 Implementation Plan Generator Agent",
+)
+def generate_implementation_plan(req: ImplementationPlanRequest):
+    """Executes the Implementation Plan Generator Agent in CREATE mode (opening a new plan PR) or REVISE mode (updating based on review/audit feedback)."""
+    token = os.getenv("GITHUB_TOKEN", "")
+    sdlc_repo = req.sdlc_repo or os.getenv("SDLC_GOVERNANCE_REPO", "owner/agentic-sdlc")
+    target_codebase = req.target_codebase_repo or os.getenv("TARGET_CODEBASE_REPO", "poojabasker20/springboot-hello-world")
+
+    try:
+        agent = ImplementationPlanGeneratorAgent(
+            github_token=token,
+            repo_name=sdlc_repo,
+            target_codebase_repo=target_codebase,
+        )
+        context_docs = load_governance_context_docs()
+
+        # REVISE Mode (Triggered by review/audit comments on an open plan PR)
+        if req.pr_number:
+            pr = agent.publisher.repo.get_pull(req.pr_number)
+            # Extract subtask ID from branch (e.g. feature/plan-subtask-story-101-1)
+            match = re.search(r"plan-(subtask-[a-zA-Z0-9\-]+)", pr.head.ref, re.I)
+            subtask_id = match.group(1).upper() if match else f"PR-{pr.number}"
+            
+            # Infer story id
+            story_match = re.search(r"story-([a-zA-Z0-9]+)", subtask_id, re.I)
+            story_id = f"STORY-{story_match.group(1).upper()}" if story_match else req.story_id
+
+            subtasks_content = load_content(
+                file_path=f"tasks/{story_id}/subtasks.md",
+                raw_content=req.subtasks_content,
+                fallback_default="",
+            )
+            story_content = load_content(
+                file_path=f"user-stories/{story_id}.md",
+                raw_content=req.story_content,
+                fallback_default="",
+            )
+            mode = "REVISE"
+        # CREATE Mode (Initial blueprint generation)
+        else:
+            clean_story_id = re.sub(r"^story-?", "", req.story_id, flags=re.I).strip()
+            story_id = f"STORY-{clean_story_id.upper()}" if clean_story_id else req.story_id.upper()
+
+            clean_subtask_id = re.sub(r"^subtask-?", "", req.subtask_id, flags=re.I).strip()
+            subtask_id = f"SUBTASK-{clean_subtask_id.upper()}" if clean_subtask_id else req.subtask_id.upper()
+
+            subtasks_file = req.subtasks_file or f"tasks/{story_id}/subtasks.md"
+            story_file = req.story_file or f"user-stories/{story_id}.md"
+
+            subtasks_content = load_content(
+                file_path=subtasks_file,
+                raw_content=req.subtasks_content,
+                fallback_default="",
+            )
+            story_content = load_content(
+                file_path=story_file,
+                raw_content=req.story_content,
+                fallback_default="",
+            )
+            mode = "CREATE"
+
+        if not story_content or not story_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"Parent user story specification for '{story_id}' was not found in 'user-stories/'. "
+                    f"Please run Stage 1 (User Story Refiner Agent) first."
+                ),
+            )
+
+        if not subtasks_content or not subtasks_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"Subtask plan for '{story_id}' was not found in 'tasks/{story_id}/subtasks.md'. "
+                    f"Please run Stage 2 (Subtask Generator Agent) first."
+                ),
+            )
+
+        result = agent.run_stage(
+            story_id=story_id,
+            subtask_id=subtask_id,
+            subtasks_content=subtasks_content,
+            story_content=story_content,
+            context_docs=context_docs,
+        )
+        return ImplementationPlanResponse(
+            status=result.get("status", "SUCCESS"),
+            mode=mode,
+            story_id=story_id,
+            subtask_id=subtask_id,
+            pr_number=result.get("pr_number"),
+            pr_url=result.get("pr_url"),
+            files_count=result.get("files_count", 0),
+            details=result,
+        )
+    except Exception as e:
+        logger.error("Implementation Plan generation failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Implementation Plan Agent execution failed: {str(e)}",
         )

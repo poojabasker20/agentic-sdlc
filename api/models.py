@@ -117,3 +117,54 @@ class SubtaskRefineResponse(BaseModel):
     subtasks_count: int = 0
     details: Dict[str, Any] = Field(default_factory=dict)
 
+
+class ImplementationPlanRequest(BaseModel):
+    story_id: str = Field(
+        default="STORY-101", description="Parent Story identifier (e.g. STORY-101)"
+    )
+    subtask_id: str = Field(
+        default="SUBTASK-STORY-101-1",
+        description="Target Subtask identifier (e.g. SUBTASK-STORY-101-1)",
+    )
+    subtasks_file: Optional[str] = Field(
+        default="tasks/STORY-101/subtasks.md",
+        description="Path to subtasks plan markdown file",
+    )
+    story_file: Optional[str] = Field(
+        default="user-stories/STORY-101.md",
+        description="Path to parent user story markdown file",
+    )
+    subtasks_content: Optional[str] = Field(
+        default=None, description="Optional raw subtasks plan markdown content"
+    )
+    story_content: Optional[str] = Field(
+        default=None, description="Optional raw user story markdown content"
+    )
+    target_codebase_repo: Optional[str] = Field(
+        default="poojabasker20/springboot-hello-world",
+        description="Target codebase repository name",
+    )
+    sdlc_repo: Optional[str] = Field(
+        default=None,
+        description="Governance repository for implementation plan PR operations",
+    )
+    event_name: str = Field(
+        default="workflow_dispatch",
+        description="Trigger event ('workflow_dispatch' or 'pull_request_review')",
+    )
+    pr_number: Optional[int] = Field(
+        default=None, description="PR Number for comment/review revision events"
+    )
+
+
+class ImplementationPlanResponse(BaseModel):
+    status: str
+    mode: str
+    story_id: str
+    subtask_id: str
+    pr_number: Optional[int] = None
+    pr_url: Optional[str] = None
+    files_count: int = 0
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
