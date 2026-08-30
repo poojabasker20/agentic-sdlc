@@ -69,55 +69,46 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Execute User Story Refiner Agent
+      - name: 5. Start Agentic SDLC FastAPI Service
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SDLC_GOVERNANCE_REPO: ${{ github.repository }}
-          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID || secrets.GCP_PROJECT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          STORY_ID: ${{ inputs.story_id }}
-          GOAL_FILE: ${{ inputs.goal_file }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          GOOGLE_CLOUD_LOCATION: "europe-west1"
         run: |
-          python -c "
-          import os, glob, re
-          from agents.user_story_agent import UserStoryRefinerAgent
+          nohup uvicorn api.main:app --host 0.0.0.0 --port 8000 > fastapi.log 2>&1 &
+          echo "Waiting for FastAPI service to start..."
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/health | grep -q '"status":"ok"'; then
+              echo "✓ FastAPI service is healthy and ready!"
+              break
+            fi
+            sleep 1
+          done
 
-          token = os.getenv('GITHUB_TOKEN', '')
-          sdlc_repo = os.getenv('SDLC_GOVERNANCE_REPO', 'owner/agentic-sdlc')
-          event_name = os.getenv('EVENT_NAME', 'workflow_dispatch')
-          agent = UserStoryRefinerAgent(github_token=token, repo_name=sdlc_repo)
+      - name: 6. Execute User Story Refiner Agent (POST /api/v1/agent/user-story)
+        run: |
+          pr_num="${{ github.event.issue.number || github.event.pull_request.number }}"
+          if [ -z "$pr_num" ]; then
+            pr_num="null"
+          fi
 
-          # Aggregate context docs from docs/
-          doc_sections = []
-          for md_file in sorted(glob.glob('docs/**/*.md', recursive=True)):
-              if 'AST_CODE_MAP' not in md_file:
-                  with open(md_file, 'r', encoding='utf-8') as f:
-                      doc_sections.append(f.read().strip())
-          context_docs = '\n\n---\n\n'.join(doc_sections) if doc_sections else 'Spring Boot 3.x REST API conventions.'
-
-          # Handle PR Comments & Reviews (REVISE mode)
-          if event_name in ['issue_comment', 'pull_request_review_comment', 'pull_request_review']:
-              pr_number = int(os.getenv('PR_NUMBER', '0'))
-              pr = agent.publisher.repo.get_pull(pr_number)
-              match = re.search(r'story-([a-zA-Z0-9\-]+)', pr.head.ref, re.I)
-              story_id = f'STORY-{match.group(1).upper()}' if match else f'PR-{pr.number}'
-              pm_goal = f'Refine user story based on reviewer feedback on PR #{pr.number}'
-              result = agent.run_stage(story_id=story_id, pm_goal=pm_goal, context_docs=context_docs)
-              print('Revise Mode Result:', result)
-
-          # Handle Manual Dispatch (CREATE mode)
-          else:
-              story_id = os.getenv('STORY_ID', 'STORY-101')
-              goal_file = os.getenv('GOAL_FILE', 'goals/GOAL-101.md')
-              pm_goal = ''
-              if os.path.exists(goal_file):
-                  with open(goal_file, 'r', encoding='utf-8') as f:
-                      pm_goal = f.read()
-              else:
-                  pm_goal = f'Feature specification for {story_id}'
-
-              result = agent.run_stage(story_id=story_id, pm_goal=pm_goal, context_docs=context_docs)
-              print('Create Mode Result:', result)
-          "
+          response=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:8000/api/v1/agent/user-story \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"story_id\": \"${{ inputs.story_id }}\",
+              \"goal_file\": \"${{ inputs.goal_file }}\",
+              \"sdlc_repo\": \"${{ github.repository }}\",
+              \"event_name\": \"${{ github.event_name }}\",
+              \"pr_number\": $pr_num
+            }")
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Response ($http_code): $body"
+          
+          if [ "$http_code" -ne 200 ]; then
+            echo "User Story Agent API request failed!"
+            cat fastapi.log
+            exit 1
+          fi
