@@ -114,7 +114,7 @@ Provide a concise summary of the overall implementation strategy, architectural 
 
 ### Subtask 1: [Short, action-oriented title, e.g., DTO & Entity Schema Definition]
 
-- **Subtask ID:** SUB-[STORY_ID]-1
+- **Subtask ID:** SUBTASK-[STORY_ID]-1
 - **Target Component / Layer:** [e.g., Domain Models / DTOs / Database Schemas]
 - **Estimated Scope:** 1 PR
 - **Fulfills User Story Criteria:** [e.g., AC1, AC2]
@@ -131,11 +131,11 @@ Provide a concise summary of the overall implementation strategy, architectural 
 
 ### Subtask 2: [Short, action-oriented title, e.g., Service Layer & Business Logic Implementation]
 
-- **Subtask ID:** SUB-[STORY_ID]-2
+- **Subtask ID:** SUBTASK-[STORY_ID]-2
 - **Target Component / Layer:** [e.g., Business Service / Data Access]
 - **Estimated Scope:** 1-2 PRs
 - **Fulfills User Story Criteria:** [e.g., AC1, AC3]
-- **Dependencies:** SUB-[STORY_ID]-1
+- **Dependencies:** SUBTASK-[STORY_ID]-1
 - **Affected / Target Files:**
   - `<source_directory>/controller/FeatureController.<ext>` (New / Modify)
 - **Technical Description & Steps:**
@@ -148,11 +148,11 @@ Provide a concise summary of the overall implementation strategy, architectural 
 
 ### Subtask 3: [Short, action-oriented title, e.g., REST Controller Endpoints & Error Handling]
 
-- **Subtask ID:** SUB-[STORY_ID]-3
+- **Subtask ID:** SUBTASK-[STORY_ID]-3
 - **Target Component / Layer:** [e.g., REST Controller / Controller Advice]
 - **Estimated Scope:** 1 PR
 - **Fulfills User Story Criteria:** [e.g., AC1, AC2, AC3]
-- **Dependencies:** SUB-[STORY_ID]-1, SUB-[STORY_ID]-2
+- **Dependencies:** SUBTASK-[STORY_ID]-1, SUBTASK-[STORY_ID]-2
 - **Affected / Target Files:**
   - `<source_directory>/controller/FeatureController.<ext>` (New / Modify)
 - **Technical Description & Steps:**
@@ -164,7 +164,7 @@ Provide a concise summary of the overall implementation strategy, architectural 
 ## 3. Execution Dependency Graph
 
 ```text
-SUB-[STORY_ID]-1 (DTOs/Models) ──► SUB-[STORY_ID]-2 (Service Layer) ──► SUB-[STORY_ID]-3 (REST Endpoints)
+SUBTASK-[STORY_ID]-1 (DTOs/Models) ──► SUBTASK-[STORY_ID]-2 (Service Layer) ──► SUBTASK-[STORY_ID]-3 (REST Endpoints)
 ```
 ````
 

@@ -79,3 +79,41 @@ class UserStoryRefineResponse(BaseModel):
     pr_number: Optional[int] = None
     pr_url: Optional[str] = None
     details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SubtaskRefineRequest(BaseModel):
+    story_id: str = Field(
+        default="STORY-101", description="Story identifier (e.g. STORY-101)"
+    )
+    story_file: Optional[str] = Field(
+        default="user-stories/STORY-101.md",
+        description="Path to refined user story markdown file",
+    )
+    story_content: Optional[str] = Field(
+        default=None, description="Optional raw user story markdown content"
+    )
+    target_codebase_repo: Optional[str] = Field(
+        default="poojabasker20/springboot-hello-world",
+        description="Target codebase repository name",
+    )
+    sdlc_repo: Optional[str] = Field(
+        default=None, description="Governance repository for subtask PR operations"
+    )
+    event_name: str = Field(
+        default="workflow_dispatch",
+        description="Trigger event ('workflow_dispatch' or 'pull_request_review')",
+    )
+    pr_number: Optional[int] = Field(
+        default=None, description="PR Number for comment/review revision events"
+    )
+
+
+class SubtaskRefineResponse(BaseModel):
+    status: str
+    mode: str
+    story_id: str
+    pr_number: Optional[int] = None
+    pr_url: Optional[str] = None
+    subtasks_count: int = 0
+    details: Dict[str, Any] = Field(default_factory=dict)
+
