@@ -74,7 +74,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SDLC_GOVERNANCE_REPO: ${{ github.repository }}
           GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
-          GOOGLE_CLOUD_LOCATION: "europe-west1"
+          GOOGLE_CLOUD_LOCATION: "global"
         run: |
           nohup uvicorn api.main:app --host 0.0.0.0 --port 8000 > fastapi.log 2>&1 &
           echo "Waiting for FastAPI service to start..."
