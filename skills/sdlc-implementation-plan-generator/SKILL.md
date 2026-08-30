@@ -3,6 +3,8 @@ name: sdlc-implementation-plan-generator
 description: Generates detailed, low-level technical implementation blueprints for individual subtasks, specifying exact file diffs, blast radius, security impacts, and test specifications grounded in codebase AST context and user stories, managing GitHub PR creation and comment-driven revision loops.
 model: gemini-3.7-flash
 tools: query_codebase_ast
+skills: 
+  - sdlc-plan-verifier
 ---
 
 # Implementation Plan Generator Skill
@@ -44,7 +46,7 @@ The skill operates in one of two execution modes based on whether an open GitHub
 
 ### Mode A: CREATE Mode (Initial PR Generation)
 
-When no open Pull Request exists for the plan branch (`feature/plan-<subtask_id>`) on `SDLC_GOVERNANCE_REPO`:
+When no open Pull Request exists for the plan branch (`feature/plan`) on `SDLC_GOVERNANCE_REPO`:
 
 1. **Multi-Artifact Context Ingestion**:
    - Read the target Subtask definition from `tasks/<story_id>/subtasks.md`.
@@ -80,11 +82,15 @@ When manually re-triggered on an existing Pull Request (`--pr <pr_number>`) on `
    - **Resolve Questions & Assumptions**: Update **Section 7 (Open Questions)** and **Section 8 (Assumptions)** based on reviewer input.
    - **Preserve Unaffected Blueprint Sections**: Retain agreed-upon technical details that were not challenged.
 
-3. **Re-Refine Blueprint**: Update `implementation-plans/<story-id>/<subtask_id>/plan.md` to incorporate requested adjustments, re-checking against AST maps (`docs/architecture/AST_CODE_MAP.md`) and parsed specs (`docs/*.md`).
+3. **SDLC Verification**:
+   - Invoke the `sdlc-plan-verifier` skill to evaluate and audit the proposed blueprint against adversarial verification rules.
+   - Directly remediate any identified defects or critiques in the blueprint prior to generating the final output.
 
-4. **Append Revision Changelog**: Document all modifications made in response to reviewer comments under **Section 9 (Revision Changelog)**.
+4. **Re-Refine Blueprint**: Update `implementation-plans/<story-id>/plan.md` to incorporate requested adjustments, re-checking against AST maps (`docs/architecture/AST_CODE_MAP.md`) and parsed specs (`docs/*.md`).
 
-5. **Push Branch Update**: Update `implementation-plans/<story-id>/<subtask_id>/plan.md` on branch `feature/plan-<subtask_id>` in `SDLC_GOVERNANCE_REPO` and post a revision summary comment back to the PR.
+5. **Append Revision Changelog**: Document all modifications made in response to reviewer comments under **Section 9 (Revision Changelog)**.
+
+5. **Push Branch Update**: Update `implementation-plans/<story-id>/plan.md` on branch `feature/plan` in `SDLC_GOVERNANCE_REPO` and post a revision summary comment back to the PR.
 
 ---
 
@@ -281,6 +287,6 @@ List technical or architectural assumptions made by the agent during blueprint g
 - [ ] Blast radius and security guardrails are fully evaluated in Sections 4 and 5.
 - [ ] Unit and integration test specifications map directly to parent User Story BDD acceptance criteria.
 - [ ] Output conforms strictly to the Markdown template with all `[...]` placeholders replaced.
-- [ ] The plan was saved to `implementation-plans/<story_id>/<subtask_id>/plan.md` on `SDLC_GOVERNANCE_REPO`.
+- [ ] The plan was saved to `implementation-plans/<story_id>/plan.md` on `SDLC_GOVERNANCE_REPO`.
 - [ ] A GitHub Pull Request was created (`CREATE` mode) or updated with a revision commit and comment (`REVISE` mode) on `SDLC_GOVERNANCE_REPO`.
 ```
