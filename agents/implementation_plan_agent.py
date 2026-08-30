@@ -31,17 +31,35 @@ class ImplementationPlanGeneratorAgent:
 
     self.publisher = GitHubPublisherService(token, sdlc_repo)
 
-    skill_path = (
+    generator_skill = (
         Path(__file__).resolve().parent.parent
         / "skills"
         / "sdlc-implementation-plan-generator"
         / "SKILL.md"
     )
-    if not skill_path.exists():
-      skill_path = Path("skills/sdlc-implementation-plan-generator/SKILL.md")
+    verifier_skill = (
+        Path(__file__).resolve().parent.parent
+        / "skills"
+        / "sdlc-plan-verifier"
+        / "SKILL.md"
+    )
 
-    with open(skill_path, "r", encoding="utf-8") as f:
-      self.skill_instruction = f.read()
+    instructions = []
+    if generator_skill.exists():
+      with open(generator_skill, "r", encoding="utf-8") as f:
+        instructions.append(f.read())
+    elif Path("skills/sdlc-implementation-plan-generator/SKILL.md").exists():
+      with open("skills/sdlc-implementation-plan-generator/SKILL.md", "r", encoding="utf-8") as f:
+        instructions.append(f.read())
+
+    if verifier_skill.exists():
+      with open(verifier_skill, "r", encoding="utf-8") as f:
+        instructions.append(f"## Available Verification Skill (`sdlc-plan-verifier`):\n\n{f.read()}")
+    elif Path("skills/sdlc-plan-verifier/SKILL.md").exists():
+      with open("skills/sdlc-plan-verifier/SKILL.md", "r", encoding="utf-8") as f:
+        instructions.append(f"## Available Verification Skill (`sdlc-plan-verifier`):\n\n{f.read()}")
+
+    self.skill_instruction = "\n\n---\n\n".join(instructions)
 
     project_id = (
         gcp_project_id
@@ -108,13 +126,15 @@ class ImplementationPlanGeneratorAgent:
   def run_stage(
       self,
       story_id: str,
-      subtask_id: str,
       subtasks_content: str,
       story_content: str,
       context_docs: str,
   ) -> Dict[str, Any]:
     clean_story_id = re.sub(r"^story-?", "", story_id, flags=re.IGNORECASE).strip()
     norm_story_id = f"STORY-{clean_story_id.upper()}" if clean_story_id else story_id.upper()
+
+    branch_name = f"feature/plan-{norm_story_id.lower()}"
+    file_path = f"implementation-plans/{norm_story_id}/plan.md"
 
     if not story_content or not story_content.strip():
       raise FileNotFoundError(
@@ -128,60 +148,11 @@ class ImplementationPlanGeneratorAgent:
           f"Expected 'tasks/{norm_story_id}/subtasks.md'."
       )
 
-    # Batch Mode: Generate implementation plans for all subtasks in tasks/story/subtasks.md
-    if subtask_id.upper() in ["ALL", "*", ""]:
-      subtask_ids = re.findall(
-          r"-\s+\*\*Subtask ID:\*\*\s+`?(SUBTASK-[a-zA-Z0-9\-]+)`?",
-          subtasks_content,
-          flags=re.I,
-      )
-      if not subtask_ids:
-        subtask_ids = re.findall(
-            r"`?(SUBTASK-[a-zA-Z0-9\-]+)`?", subtasks_content, flags=re.I
-        )
-      seen = set()
-      unique_subtasks = [s.upper() for s in subtask_ids if not (s.upper() in seen or seen.add(s.upper()))]
-      if not unique_subtasks:
-        unique_subtasks = [f"SUBTASK-{norm_story_id}-1"]
-
-      batch_results = []
-      for st_id in unique_subtasks:
-        res = self._run_single_subtask(
-            norm_story_id, st_id, subtasks_content, story_content, context_docs
-        )
-        batch_results.append(res)
-
-      return {
-          "status": "AWAITING_HUMAN_REVIEW",
-          "mode": "BATCH_CREATE",
-          "story_id": norm_story_id,
-          "subtasks_processed": len(batch_results),
-          "results": batch_results,
-      }
-    else:
-      clean_subtask = re.sub(r"^subtask-?", "", subtask_id, flags=re.IGNORECASE).strip()
-      norm_subtask_id = f"SUBTASK-{clean_subtask.upper()}" if clean_subtask else subtask_id.upper()
-      return self._run_single_subtask(
-          norm_story_id, norm_subtask_id, subtasks_content, story_content, context_docs
-      )
-
-  def _run_single_subtask(
-      self,
-      norm_story_id: str,
-      norm_subtask_id: str,
-      subtasks_content: str,
-      story_content: str,
-      context_docs: str,
-  ) -> Dict[str, Any]:
-    branch_name = f"feature/plan-{norm_subtask_id.lower()}"
-    file_path = f"implementation-plans/{norm_story_id}/{norm_subtask_id}/plan.md"
-
     existing_pr = self.publisher.get_open_pr_for_branch(branch_name)
 
     if not existing_pr:
-      result = self._run_create_mode(
+      return self._run_create_mode(
           norm_story_id,
-          norm_subtask_id,
           subtasks_content,
           story_content,
           context_docs,
@@ -189,46 +160,19 @@ class ImplementationPlanGeneratorAgent:
           file_path,
       )
     else:
-      result = self._run_revise_mode(
+      return self._run_revise_mode(
           existing_pr,
           norm_story_id,
-          norm_subtask_id,
           subtasks_content,
           story_content,
           context_docs,
           branch_name,
           file_path,
       )
-
-    # Automatic Verification: Run Plan Verifier immediately after generation
-    try:
-      from agents.plan_verifier_agent import PlanVerifierAgent
-      verifier = PlanVerifierAgent(
-          github_token=self.publisher.repo._requester._Requester__auth.token if hasattr(self.publisher.repo, '_requester') else None,
-          repo_name=self.publisher.repo.full_name,
-          target_codebase_repo=self.target_codebase_repo,
-      )
-      current_plan = self.publisher.repo.get_contents(file_path, ref=branch_name).decoded_content.decode("utf-8")
-      audit_res = verifier.run_audit(
-          story_id=norm_story_id,
-          subtask_id=norm_subtask_id,
-          plan_content=current_plan,
-          subtasks_content=subtasks_content,
-          story_content=story_content,
-          context_docs=context_docs,
-          pr_number=result.get("pr_number"),
-      )
-      result["audit"] = audit_res
-      print(f"✓ Automatically executed Plan Verifier for {norm_subtask_id}: {audit_res.get('verdict')} (Score: {audit_res.get('score')})")
-    except Exception as v_err:
-      print(f"⚠️ Plan Verifier auto-execution warning: {v_err}")
-
-    return result
 
   def _run_create_mode(
       self,
       story_id: str,
-      subtask_id: str,
       subtasks_content: str,
       story_content: str,
       context_docs: str,
@@ -238,15 +182,14 @@ class ImplementationPlanGeneratorAgent:
     self.publisher.create_branch_if_not_exists(branch_name, base_branch="main")
 
     prompt = f"""
-        [CREATE MODE] Generate Detailed Technical Implementation Blueprint with Code Snippets & Pseudocode
-        Target Subtask ID: {subtask_id}
+        [CREATE MODE] Generate Detailed Technical Implementation Blueprint for all subtasks
         Parent Story ID: {story_id}
         Target Codebase Repository: {self.target_codebase_repo}
         
-        Subtasks Plan:
+        Subtasks Plan (tasks/{story_id}/subtasks.md):
         {subtasks_content}
         
-        Parent User Story Specification:
+        Parent User Story Specification (user-stories/{story_id}.md):
         {story_content}
         
         Architecture & Governance Context:
@@ -255,7 +198,7 @@ class ImplementationPlanGeneratorAgent:
 
     payload: ImplementationPlanPayload = self._invoke_llm(prompt)
 
-    commit_msg = f"docs({subtask_id}-plan): generate technical implementation blueprint"
+    commit_msg = f"docs({story_id}-plan): generate technical implementation blueprint"
     self.publisher.commit_file(
         file_path=file_path,
         content=payload.rendered_markdown,
@@ -263,22 +206,23 @@ class ImplementationPlanGeneratorAgent:
         branch_name=branch_name,
     )
 
+    total_files = sum(len(b.affected_files_delta) for b in payload.subtasks_blueprints)
+
     pr_body = (
         f"## Agentic SDLC - Stage 3: Implementation Blueprint\n\n"
-        f"**Subtask ID:** `{payload.subtask_id}`\n"
-        f"**Title:** {payload.subtask_title}\n"
-        f"**Parent Story ID:** `{payload.parent_story_id}`\n"
+        f"**Parent Story ID:** `{payload.story_id}`\n"
+        f"**Title:** {payload.story_title}\n"
         f"**Target Codebase:** `{payload.target_repository}`\n"
-        f"**Estimated Scope:** {payload.estimated_scope}\n\n"
-        f"### Executive Summary\n{payload.executive_summary}\n\n"
-        f"### File Delta Matrix ({len(payload.affected_files_delta)} files)\n"
+        f"**Estimated Total Scope:** {payload.estimated_scope}\n"
+        f"**Subtasks Planned:** {len(payload.subtasks_blueprints)} blueprints ({total_files} files touched)\n\n"
+        f"### Subtasks Breakdown\n"
     )
-    for af in payload.affected_files_delta:
-      pr_body += f"- `{af.file_path}` (**{af.action}** - {af.layer_component}): {af.description_of_changes}\n"
+    for b in payload.subtasks_blueprints:
+      pr_body += f"- **{b.subtask_id}**: {b.subtask_title} ({b.estimated_scope}, {len(b.affected_files_delta)} files)\n"
     pr_body += f"\n---\nPlease review `{file_path}`."
 
     pr = self.publisher.create_pull_request(
-        title=f"docs({subtask_id}-plan): detailed implementation blueprint",
+        title=f"docs({story_id}-plan): detailed implementation blueprint",
         body=pr_body,
         head_branch=branch_name,
         base_branch="main",
@@ -286,18 +230,18 @@ class ImplementationPlanGeneratorAgent:
 
     return {
         "status": "AWAITING_HUMAN_REVIEW",
-        "subtask_id": subtask_id,
+        "story_id": story_id,
         "pr_number": pr.number,
         "pr_url": pr.html_url,
         "mode": "CREATE",
-        "files_count": len(payload.affected_files_delta),
+        "subtasks_count": len(payload.subtasks_blueprints),
+        "total_files": total_files,
     }
 
   def _run_revise_mode(
       self,
       pr: Any,
       story_id: str,
-      subtask_id: str,
       subtasks_content: str,
       story_content: str,
       context_docs: str,
@@ -307,7 +251,7 @@ class ImplementationPlanGeneratorAgent:
     target_branch = pr.head.ref or branch_name
     comments = self.publisher.fetch_pr_comments(pr)
     if not comments:
-      return {"status": "NO_NEW_COMMENTS", "subtask_id": subtask_id, "pr_number": pr.number}
+      return {"status": "NO_NEW_COMMENTS", "story_id": story_id, "pr_number": pr.number}
 
     current_file = self.publisher.repo.get_contents(
         file_path, ref=target_branch
@@ -317,8 +261,7 @@ class ImplementationPlanGeneratorAgent:
     comments_str = "\n".join(f"- {c}" for c in comments)
 
     prompt = f"""
-        [REVISE MODE] Refine Technical Implementation Blueprint for Subtask: {subtask_id}
-        Parent Story ID: {story_id}
+        [REVISE MODE] Refine Technical Implementation Blueprint for Story: {story_id}
         Target Codebase Repository: {self.target_codebase_repo}
         
         Current Implementation Blueprint Markdown:
@@ -330,7 +273,7 @@ class ImplementationPlanGeneratorAgent:
         Parent User Story Specification:
         {story_content}
         
-        Reviewer Comments & Verifier Audit Feedback:
+        Reviewer Feedback & Comments:
         {comments_str}
         
         Architecture & Governance Context:
@@ -340,7 +283,7 @@ class ImplementationPlanGeneratorAgent:
     payload: ImplementationPlanPayload = self._invoke_llm(prompt)
 
     commit_msg = (
-        f"docs({subtask_id}-plan): update implementation blueprint based on review"
+        f"docs({story_id}-plan): update implementation blueprint based on review"
     )
     self.publisher.commit_file(
         file_path=file_path,
@@ -351,15 +294,18 @@ class ImplementationPlanGeneratorAgent:
 
     pr.create_issue_comment(
         "**Implementation Blueprint Updated Based on Feedback**\n\n"
-        f"**Revision Summary:**\n{payload.revision_changelog or 'Incorporated requested revisions and audit findings.'}\n\n"
+        f"**Revision Summary:**\n{payload.revision_changelog or 'Incorporated requested revisions and reviewer comments.'}\n\n"
         f"Please review the latest commit on branch `{target_branch}`."
     )
 
+    total_files = sum(len(b.affected_files_delta) for b in payload.subtasks_blueprints)
+
     return {
         "status": "REVISED_AWAITING_REVIEW",
-        "subtask_id": subtask_id,
+        "story_id": story_id,
         "pr_number": pr.number,
         "pr_url": pr.html_url,
         "mode": "REVISE",
-        "files_count": len(payload.affected_files_delta),
+        "subtasks_count": len(payload.subtasks_blueprints),
+        "total_files": total_files,
     }
