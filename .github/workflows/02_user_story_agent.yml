@@ -13,14 +13,14 @@ on:
         required: true
         default: "goals/GOAL-101.md"
 
-  # Trigger ONLY once when the reviewer submits/publishes their PR review
-  pull_request_review:
-    types: [submitted]
+#   # Trigger ONLY once when the reviewer submits/publishes their PR review
+#   pull_request_review:
+#     types: [submitted]
 
-# Prevent duplicate / overlapping runs on the same PR
-concurrency:
-  group: user-story-agent-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+# # Prevent duplicate / overlapping runs on the same PR
+# concurrency:
+#   group: user-story-agent-${{ github.event.pull_request.number || github.ref }}
+#   cancel-in-progress: true
 
 jobs:
   refine-user-story:

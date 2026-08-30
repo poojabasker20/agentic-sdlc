@@ -115,11 +115,11 @@ You must output the finalized user story using the exact Markdown structure belo
 
 ## 2. Business Context & Background
 
-_Provide a concise explanation of why this feature is needed, how it fits into the broader product strategy, and any relevant background information._
+Provide a concise explanation of why this feature is needed, how it fits into the broader product strategy, and any relevant background information.
 
 ## 3. Acceptance Criteria
 
-_Use Behavior-Driven Development (BDD) format (Given / When / Then). Each criterion must be verifiable._
+Use Behavior-Driven Development (BDD) format (Given / When / Then). Each criterion must be verifiable.
 
 - **AC1: [Title of Scenario 1]**
   - **Given** [precondition/initial state]

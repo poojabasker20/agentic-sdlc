@@ -112,7 +112,7 @@ class PdfParserService:
               )
               if diagram_summary:
                 page_lines.append(
-                    f"### 📊 Page Diagrams & Flowcharts\n{diagram_summary}\n"
+                    f"### Page Diagrams & Flowcharts\n{diagram_summary}\n"
                 )
 
           tables = page.extract_tables()
@@ -170,11 +170,11 @@ class PdfParserService:
         )
         description = response.text.strip() if response.text else None
         if description:
-          print(f"✓ Successfully extracted diagram description for Page {page_num} using model `{model_name}`")
+          print(f"Successfully extracted diagram description for Page {page_num} using model `{model_name}`")
           break
       except Exception as model_err:
         errors.append(f"{model_name}: {model_err}")
-        print(f"⚠️ Model `{model_name}` failed for Page {page_num}: {model_err}")
+        print(f"Model `{model_name}` failed for Page {page_num}: {model_err}")
         continue
 
     if description is None and errors:
