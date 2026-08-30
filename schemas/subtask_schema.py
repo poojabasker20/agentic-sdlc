@@ -19,10 +19,10 @@ class SubtaskItem(BaseModel):
         description="Unique subtask identifier, e.g., SUBTASK-STORY-101-1"
     )
     title: str = Field(
-        description="Short, action-oriented subtask title, e.g., DTO & Entity Schema Definition"
+        description="Short, action-oriented subtask title, e.g., Data Models & DTO Definition"
     )
     target_component_layer: str = Field(
-        description="Architectural layer (e.g. Domain Models / DTOs, Business Service, REST Controller)"
+        description="Architectural layer (e.g. Domain Models / DTOs, Business Service Layer, REST Controller)"
     )
     estimated_scope: str = Field(
         default="1 PR",
@@ -34,19 +34,18 @@ class SubtaskItem(BaseModel):
     )
     dependencies: List[str] = Field(
         default_factory=list,
-        description="List of prerequisite subtask IDs (e.g. ['SUB-STORY-101-1'])",
+        description="List of prerequisite subtask IDs (e.g. ['SUBTASK-STORY-101-1'])",
     )
     affected_files: List[AffectedFile] = Field(
         default_factory=list,
         description="Specific source files created or modified by this subtask",
     )
-    technical_description_steps: List[str] = Field(
-        default_factory=list,
-        description="Step-by-step technical implementation instructions",
+    overview_of_changes: str = Field(
+        description="Concise high-level summary of what will be added or modified in the system without low-level code implementation details",
     )
-    verification_criteria: List[str] = Field(
+    verification_goals: List[str] = Field(
         default_factory=list,
-        description="Explicit unit/integration test cases and verification criteria",
+        description="High-level verification and testing goals",
     )
 
 
@@ -68,19 +67,19 @@ class SubtaskPayload(BaseModel):
     )
     subtasks: List[SubtaskItem] = Field(
         default_factory=list,
-        description="List of 2-5 technical subtasks ordered sequentially by technical dependency",
+        description="List of discrete technical subtasks ordered sequentially by technical dependency",
     )
     execution_dependency_graph: str = Field(
         default="",
-        description="ASCII diagram illustrating execution order, e.g. SUB-101-1 ──► SUB-101-2",
+        description="ASCII diagram illustrating execution order, e.g. SUBTASK-101-1 ──► SUBTASK-101-2",
     )
     open_questions: List[str] = Field(
         default_factory=list,
-        description="Explicit questions or ambiguities for human tech leads to clarify",
+        description="High-level functional or scope questions for human reviewers. If none, state 'None at this time.'",
     )
     agent_assumptions: List[str] = Field(
         default_factory=list,
-        description="Technical or architectural assumptions made by the agent",
+        description="High-level architectural or business scoping assumptions made by the agent",
     )
     revision_changelog: Optional[str] = Field(
         default=None,
@@ -118,15 +117,12 @@ class SubtaskPayload(BaseModel):
                 for af in task.affected_files:
                     lines.append(f"  - `{af.file_path}` ({af.action})")
             
-            if task.technical_description_steps:
-                lines.append("- **Technical Description & Steps:**")
-                for s_idx, step in enumerate(task.technical_description_steps, 1):
-                    lines.append(f"  {s_idx}. {step}")
+            lines.append(f"- **Overview of Changes:** {task.overview_of_changes.strip()}")
             
-            if task.verification_criteria:
-                lines.append("- **Verification & Testing Criteria:**")
-                for crit in task.verification_criteria:
-                    lines.append(f"  - [ ] {crit}")
+            if task.verification_goals:
+                lines.append("- **Verification & Testing Goals:**")
+                for goal in task.verification_goals:
+                    lines.append(f"  - [ ] {goal}")
             
             lines.append("\n---\n")
 
@@ -162,9 +158,11 @@ class SubtaskPayload(BaseModel):
 
         # Done When Checklist
         lines.append("## 7. Done When Checklist\n")
-        lines.append("- [ ] Subtask plan was generated from refined User Story and grounded in AST context.")
-        lines.append("- [ ] Every subtask is bounded to 1–2 PRs in scope with explicit file paths and verification criteria.")
+        lines.append("- [ ] Subtask plan was generated from refined User Story (`user-stories/<story_id>.md`) and grounded in AST context (`docs/architecture/AST_CODE_MAP.md`).")
+        lines.append("- [ ] Every subtask is bounded to 1–2 PRs in scope with explicit file paths and verification goals.")
         lines.append("- [ ] Dependencies between subtasks are mapped sequentially in Section 3.")
-        lines.append("- [ ] Pull Request opened targeting `main` for tech lead review.")
+        lines.append("- [ ] Output conforms strictly to the Markdown template with all [...] placeholders replaced.")
+        lines.append("- [ ] The subtask plan was saved to `tasks/<story_id>/subtasks.md` on `agentic-sdlc`.")
+        lines.append("- [ ] A GitHub Pull Request was created (CREATE mode) or updated with a revision commit and comment (REVISE mode) on `agentic-sdlc`.")
 
         return "\n".join(lines)

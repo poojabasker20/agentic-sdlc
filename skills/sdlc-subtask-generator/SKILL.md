@@ -1,6 +1,6 @@
 ---
 name: sdlc-subtask-generator
-description: Deconstructs refined user stories into technical, actionable subtasks sized for 1-2 PRs each, grounded in codebase AST context and parsed architecture documents, managing GitHub Pull Request creation and comment-driven revision loops.
+description: Deconstructs refined user stories into high-level technical subtasks sized for 1-2 PRs each, focusing on what will be added or modified, affected files, and dependency ordering without low-level code implementation details while being grounded in codebase AST context and parsed architecture documents, managing GitHub Pull Request creation and comment-driven revision loops.
 model: gemini-3.7-flash
 tools: query_codebase_ast
 ---
@@ -31,9 +31,9 @@ This skill operates across two distinct GitHub repositories passed via environme
 Every generated subtask must strictly adhere to the following architectural planning principles:
 
 1. **1–2 PR Granularity**: Every subtask must represent a self-contained unit of work that a developer can implement, test, and submit in **no more than 1–2 Pull Requests**.
-2. **Logical Dependency Ordering**: Subtasks must be ordered sequentially by technical dependency (e.g., Data Models/DTOs $\rightarrow$ Service/Repository Layer $\rightarrow$ REST Controllers/Endpoints $\rightarrow$ Integration Tests).
-3. **Explicit Contract Boundaries**: Each subtask must specify exact files, classes, methods, or endpoints to be created or modified based on AST maps and architecture specs.
-4. **Independent Testability**: Every subtask must specify explicit unit/integration testing expectations so downstream coding and QA agents can verify completion.
+2. **Logical Dependency Ordering**: Subtasks must be ordered sequentially by dependency (e.g., Data Models/DTOs $\rightarrow$ Service/Repository Layer $\rightarrow$ REST Controllers/Endpoints $\rightarrow$ Integration Tests).
+3. **High-Level Scope & Affected Files**: Each subtask must specify the high-level components and target files to be created or modified based on AST maps and architecture specs, providing an overview of what will be added or changed **without low-level code implementation details or internal method logic**.
+4. **Independent Verification**: Every subtask must specify high-level testing or verification goals so downstream agents and developers can verify completion.
 
 ---
 
@@ -51,13 +51,13 @@ When no open Pull Request exists for the subtask branch (`feature/subtasks-<stor
    - Read parsed architecture documents, PRDs, technical specifications, and enterprise governance guardrails directly from `agentic-sdlc` (`docs/*.md`).
    - Ground API routes, DTO schemas, security rules, parameter validations, and HTTP status codes using the **Code & Document Grounding Matrix**.
 
-2. **Technical Decomposition & Subtask Slicing**:
-   - Break down acceptance criteria (ACs) and technical constraints into 2–5 discrete, sequentially ordered technical subtasks.
-   - Ensure each subtask is sized for 1–2 PRs and explicitly references affected components and files.
+2. **Decomposition & Subtask Slicing**:
+   - Break down acceptance criteria (ACs) and requirements into discrete, sequentially ordered subtasks.
+   - Ensure each subtask is sized for 1–2 PRs and provides a clear summary of what will be added or changed along with affected files.
 
-3. **Explicit Assumptions & Open Questions Logging**:
-   - Log technical ambiguities, unstated database migration rules, or missing interface details in **Section 4 (Open Questions & Clarifications Needed)** and **Section 5 (Agent Assumptions Made)**.
-   - This signals explicitly to human tech leads on GitHub where feedback is needed.
+3. **Assumptions & High-Level Questions Logging**:
+   - Log high-level functional ambiguities or scoping questions in **Section 4 (Open Questions & Clarifications Needed)** and **Section 5 (Agent Assumptions Made)**.
+   - **Do NOT ask highly technical code implementation, framework syntax, or micro-level questions at this stage.**
 
 4. **PR Artifact Output**: Generate the finalized subtasks plan using the **Standard Output Format Specification** and write it to `tasks/<story_id>/subtasks.md` on `agentic-sdlc`.
 
@@ -115,16 +115,14 @@ Provide a concise summary of the overall implementation strategy, architectural 
 ### Subtask 1: [Short, action-oriented title, e.g., DTO & Entity Schema Definition]
 
 - **Subtask ID:** SUBTASK-[STORY_ID]-1
-- **Target Component / Layer:** [e.g., Domain Models / DTOs / Database Schemas]
+- **Target Component / Layer:** [e.g., Domain Models / DTOs]
 - **Estimated Scope:** 1 PR
 - **Fulfills User Story Criteria:** [e.g., AC1, AC2]
 - **Affected / Target Files:**
   - `<source_directory>/dto/RequestDTO.<ext>` (New)
   - `<source_directory>/service/FeatureService.<ext>` (Modify)
-- **Technical Description & Steps:**
-  1. Define payload record/class with validation constraints.
-  2. Implement mapping methods / converters.
-- **Verification & Testing Criteria:**
+- **Overview of Changes:** [Concise high-level summary of what will be added or modified without low-level code implementation details]
+- **Verification & Testing Goals:**
   - [ ] Unit tests for DTO validation and serialization pass.
 
 ---
@@ -138,10 +136,8 @@ Provide a concise summary of the overall implementation strategy, architectural 
 - **Dependencies:** SUBTASK-[STORY_ID]-1
 - **Affected / Target Files:**
   - `<source_directory>/controller/FeatureController.<ext>` (New / Modify)
-- **Technical Description & Steps:**
-  1. Implement core business logic and exception handling.
-  2. Wire required dependencies and repository integrations.
-- **Verification & Testing Criteria:**
+- **Overview of Changes:** [Concise high-level summary of what will be added or modified without low-level code implementation details]
+- **Verification & Testing Goals:**
   - [ ] Service unit tests mock repository layer and verify logic paths.
 
 ---
@@ -155,10 +151,8 @@ Provide a concise summary of the overall implementation strategy, architectural 
 - **Dependencies:** SUBTASK-[STORY_ID]-1, SUBTASK-[STORY_ID]-2
 - **Affected / Target Files:**
   - `<source_directory>/controller/FeatureController.<ext>` (New / Modify)
-- **Technical Description & Steps:**
-  1. Expose REST route with proper HTTP verb, path variables, and request body annotations.
-  2. Return standardized HTTP response status codes (`200 OK`, `201 Created`, `400 Bad Request`).
-- **Verification & Testing Criteria:**
+- **Overview of Changes:** [Concise high-level summary of what will be added or modified without low-level code implementation details]
+- **Verification & Testing Goals:**
   - [ ] Integration tests verify HTTP endpoints and status codes.
 
 ## 3. Execution Dependency Graph
@@ -170,17 +164,16 @@ SUBTASK-[STORY_ID]-1 (DTOs/Models) ──► SUBTASK-[STORY_ID]-2 (Service Layer
 
 ## 4. Open Questions & Clarifications Needed
 
-List explicit questions or technical ambiguities that human reviewers/tech leads should clarify via GitHub PR comments.
+List any high-level functional or scope questions that human reviewers should clarify via GitHub PR comments. Do not ask highly technical or low-level implementation questions. If none, state "None at this time."
 
-- [ ] **Q1:** [Specific question regarding framework choice, migration strategy, or service interface]
-- [ ] **Q2:** [Specific edge case or library dependency question]
+- [ ] **Q1:** [High-level functional or business scope clarification if needed]
 
 ## 5. Agent Assumptions Made
 
-List technical or architectural assumptions made by the agent during subtask decomposition.
+List high-level architectural or business scoping assumptions made during subtask decomposition.
 
-- [ ] **Assumption 1:** [e.g., "Assumed centralized error middleware / API exception handlers is present to catch MethodArgumentNotValidException"]
-- [ ] **Assumption 2:** [e.g., "Assumed database schema updates are handled via automated database schema migration scripts"]
+- **Assumption 1:** [e.g., "Assumed centralized error middleware is present to handle validation exceptions"]
+- **Assumption 2:** [e.g., "Assumed database schema updates are handled via automated database schema migration scripts"]
 
 ## 6. Revision Changelog
 
@@ -189,7 +182,7 @@ List technical or architectural assumptions made by the agent during subtask dec
 ## 7. Done When Checklist
 
 - [ ] Subtask plan was generated from refined User Story (`user-stories/<story_id>.md`) and grounded in AST context (`docs/architecture/AST_CODE_MAP.md`).
-- [ ] Every subtask is bounded to 1–2 PRs in scope with explicit file paths and verification criteria.
+- [ ] Every subtask is bounded to 1–2 PRs in scope with explicit file paths and verification goals.
 - [ ] Dependencies between subtasks are mapped sequentially in Section 3.
 - [ ] Output conforms strictly to the Markdown template with all [...] placeholders replaced.
 - [ ] The subtask plan was saved to `tasks/<story_id>/subtasks.md` on `agentic-sdlc`.
