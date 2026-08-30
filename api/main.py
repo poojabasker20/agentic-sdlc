@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from agents.implementation_plan_agent import ImplementationPlanGeneratorAgent
+from agents.plan_verifier_agent import PlanVerifierAgent
 from agents.subtask_agent import SubtaskGeneratorAgent
 from agents.user_story_agent import UserStoryRefinerAgent
 from api.models import (
@@ -17,6 +18,8 @@ from api.models import (
     DocIngestionResponse,
     ImplementationPlanRequest,
     ImplementationPlanResponse,
+    PlanVerifierRequest,
+    PlanVerifierResponse,
     SubtaskRefineRequest,
     SubtaskRefineResponse,
     UserStoryRefineRequest,
@@ -372,4 +375,79 @@ def generate_implementation_plan(req: ImplementationPlanRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Implementation Plan Agent execution failed: {str(e)}",
+        )
+
+
+@app.post(
+    "/api/v1/agent/plan-verifier",
+    response_model=PlanVerifierResponse,
+    tags=["Agents"],
+    summary="Execute SDLC Plan Verifier Agent",
+)
+def verify_implementation_plan(req: PlanVerifierRequest):
+    """Executes the Adversarial Plan Verifier Agent on an implementation plan, checking surgical limits, DAG integrity, and BDD coverage."""
+    token = os.getenv("GITHUB_TOKEN", "")
+    sdlc_repo = req.sdlc_repo or os.getenv("SDLC_GOVERNANCE_REPO", "owner/agentic-sdlc")
+    target_codebase = req.target_codebase_repo or os.getenv("TARGET_CODEBASE_REPO", "poojabasker20/springboot-hello-world")
+
+    try:
+        agent = PlanVerifierAgent(
+            github_token=token,
+            repo_name=sdlc_repo,
+            target_codebase_repo=target_codebase,
+        )
+        context_docs = load_governance_context_docs()
+
+        clean_story_id = re.sub(r"^story-?", "", req.story_id, flags=re.I).strip()
+        story_id = f"STORY-{clean_story_id.upper()}" if clean_story_id else req.story_id.upper()
+
+        clean_subtask = re.sub(r"^subtask-?", "", req.subtask_id, flags=re.I).strip()
+        subtask_id = f"SUBTASK-{clean_subtask.upper()}" if clean_subtask else req.subtask_id.upper()
+
+        plan_file = req.plan_file or f"implementation-plans/{story_id}/{subtask_id}/plan.md"
+        plan_content = load_content(
+            file_path=plan_file,
+            raw_content=req.plan_content,
+            fallback_default="",
+        )
+
+        if not plan_content or not plan_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Implementation plan file '{plan_file}' was not found. Please run Implementation Plan Generator first.",
+            )
+
+        story_content = load_content(
+            file_path=f"user-stories/{story_id}.md",
+            fallback_default="",
+        )
+        subtasks_content = load_content(
+            file_path=f"tasks/{story_id}/subtasks.md",
+            fallback_default="",
+        )
+
+        result = agent.run_audit(
+            story_id=story_id,
+            subtask_id=subtask_id,
+            plan_content=plan_content,
+            subtasks_content=subtasks_content,
+            story_content=story_content,
+            context_docs=context_docs,
+            pr_number=req.pr_number,
+        )
+
+        return PlanVerifierResponse(
+            status=result.get("status", "PASSED"),
+            verdict=result.get("verdict", "PASSED"),
+            score=result.get("score", 90),
+            subtask_id=subtask_id,
+            findings_count=result.get("findings_count", 0),
+            report_path=result.get("report_path", f"docs/audits/{subtask_id}-verifier-report.md"),
+            details=result,
+        )
+    except Exception as e:
+        logger.error("Plan Verification failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Plan Verifier Agent execution failed: {str(e)}",
         )

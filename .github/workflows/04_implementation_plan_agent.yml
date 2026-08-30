@@ -9,9 +9,9 @@ on:
         required: true
         default: "STORY-101"
       subtask_id:
-        description: "Target Subtask Identifier (e.g. SUBTASK-STORY-101-1)"
+        description: "Target Subtask Identifier (e.g. SUBTASK-STORY-101-1 or ALL for all subtasks)"
         required: true
-        default: "SUBTASK-STORY-101-1"
+        default: "ALL"
       subtasks_file:
         description: "Path to subtasks plan (e.g. tasks/STORY-101/subtasks.md)"
         required: false

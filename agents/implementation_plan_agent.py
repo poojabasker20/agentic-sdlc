@@ -116,12 +116,6 @@ class ImplementationPlanGeneratorAgent:
     clean_story_id = re.sub(r"^story-?", "", story_id, flags=re.IGNORECASE).strip()
     norm_story_id = f"STORY-{clean_story_id.upper()}" if clean_story_id else story_id.upper()
 
-    clean_subtask = re.sub(r"^subtask-?", "", subtask_id, flags=re.IGNORECASE).strip()
-    norm_subtask_id = f"SUBTASK-{clean_subtask.upper()}" if clean_subtask else subtask_id.upper()
-
-    branch_name = f"feature/plan-{norm_subtask_id.lower()}"
-    file_path = f"implementation-plans/{norm_story_id}/{norm_subtask_id}/plan.md"
-
     if not story_content or not story_content.strip():
       raise FileNotFoundError(
           f"Parent User Story specification for '{norm_story_id}' is missing or empty. "
@@ -134,10 +128,58 @@ class ImplementationPlanGeneratorAgent:
           f"Expected 'tasks/{norm_story_id}/subtasks.md'."
       )
 
+    # Batch Mode: Generate implementation plans for all subtasks in tasks/story/subtasks.md
+    if subtask_id.upper() in ["ALL", "*", ""]:
+      subtask_ids = re.findall(
+          r"-\s+\*\*Subtask ID:\*\*\s+`?(SUBTASK-[a-zA-Z0-9\-]+)`?",
+          subtasks_content,
+          flags=re.I,
+      )
+      if not subtask_ids:
+        subtask_ids = re.findall(
+            r"`?(SUBTASK-[a-zA-Z0-9\-]+)`?", subtasks_content, flags=re.I
+        )
+      seen = set()
+      unique_subtasks = [s.upper() for s in subtask_ids if not (s.upper() in seen or seen.add(s.upper()))]
+      if not unique_subtasks:
+        unique_subtasks = [f"SUBTASK-{norm_story_id}-1"]
+
+      batch_results = []
+      for st_id in unique_subtasks:
+        res = self._run_single_subtask(
+            norm_story_id, st_id, subtasks_content, story_content, context_docs
+        )
+        batch_results.append(res)
+
+      return {
+          "status": "AWAITING_HUMAN_REVIEW",
+          "mode": "BATCH_CREATE",
+          "story_id": norm_story_id,
+          "subtasks_processed": len(batch_results),
+          "results": batch_results,
+      }
+    else:
+      clean_subtask = re.sub(r"^subtask-?", "", subtask_id, flags=re.IGNORECASE).strip()
+      norm_subtask_id = f"SUBTASK-{clean_subtask.upper()}" if clean_subtask else subtask_id.upper()
+      return self._run_single_subtask(
+          norm_story_id, norm_subtask_id, subtasks_content, story_content, context_docs
+      )
+
+  def _run_single_subtask(
+      self,
+      norm_story_id: str,
+      norm_subtask_id: str,
+      subtasks_content: str,
+      story_content: str,
+      context_docs: str,
+  ) -> Dict[str, Any]:
+    branch_name = f"feature/plan-{norm_subtask_id.lower()}"
+    file_path = f"implementation-plans/{norm_story_id}/{norm_subtask_id}/plan.md"
+
     existing_pr = self.publisher.get_open_pr_for_branch(branch_name)
 
     if not existing_pr:
-      return self._run_create_mode(
+      result = self._run_create_mode(
           norm_story_id,
           norm_subtask_id,
           subtasks_content,
@@ -147,7 +189,7 @@ class ImplementationPlanGeneratorAgent:
           file_path,
       )
     else:
-      return self._run_revise_mode(
+      result = self._run_revise_mode(
           existing_pr,
           norm_story_id,
           norm_subtask_id,
@@ -157,6 +199,31 @@ class ImplementationPlanGeneratorAgent:
           branch_name,
           file_path,
       )
+
+    # Automatic Verification: Run Plan Verifier immediately after generation
+    try:
+      from agents.plan_verifier_agent import PlanVerifierAgent
+      verifier = PlanVerifierAgent(
+          github_token=self.publisher.repo._requester._Requester__auth.token if hasattr(self.publisher.repo, '_requester') else None,
+          repo_name=self.publisher.repo.full_name,
+          target_codebase_repo=self.target_codebase_repo,
+      )
+      current_plan = self.publisher.repo.get_contents(file_path, ref=branch_name).decoded_content.decode("utf-8")
+      audit_res = verifier.run_audit(
+          story_id=norm_story_id,
+          subtask_id=norm_subtask_id,
+          plan_content=current_plan,
+          subtasks_content=subtasks_content,
+          story_content=story_content,
+          context_docs=context_docs,
+          pr_number=result.get("pr_number"),
+      )
+      result["audit"] = audit_res
+      print(f"✓ Automatically executed Plan Verifier for {norm_subtask_id}: {audit_res.get('verdict')} (Score: {audit_res.get('score')})")
+    except Exception as v_err:
+      print(f"⚠️ Plan Verifier auto-execution warning: {v_err}")
+
+    return result
 
   def _run_create_mode(
       self,
@@ -171,7 +238,7 @@ class ImplementationPlanGeneratorAgent:
     self.publisher.create_branch_if_not_exists(branch_name, base_branch="main")
 
     prompt = f"""
-        [CREATE MODE] Generate Detailed Technical Implementation Blueprint
+        [CREATE MODE] Generate Detailed Technical Implementation Blueprint with Code Snippets & Pseudocode
         Target Subtask ID: {subtask_id}
         Parent Story ID: {story_id}
         Target Codebase Repository: {self.target_codebase_repo}
@@ -219,6 +286,7 @@ class ImplementationPlanGeneratorAgent:
 
     return {
         "status": "AWAITING_HUMAN_REVIEW",
+        "subtask_id": subtask_id,
         "pr_number": pr.number,
         "pr_url": pr.html_url,
         "mode": "CREATE",
@@ -239,7 +307,7 @@ class ImplementationPlanGeneratorAgent:
     target_branch = pr.head.ref or branch_name
     comments = self.publisher.fetch_pr_comments(pr)
     if not comments:
-      return {"status": "NO_NEW_COMMENTS", "pr_number": pr.number}
+      return {"status": "NO_NEW_COMMENTS", "subtask_id": subtask_id, "pr_number": pr.number}
 
     current_file = self.publisher.repo.get_contents(
         file_path, ref=target_branch
@@ -289,6 +357,7 @@ class ImplementationPlanGeneratorAgent:
 
     return {
         "status": "REVISED_AWAITING_REVIEW",
+        "subtask_id": subtask_id,
         "pr_number": pr.number,
         "pr_url": pr.html_url,
         "mode": "REVISE",

@@ -53,7 +53,7 @@ When no open Pull Request exists for the plan branch (`feature/plan-<subtask_id>
    - Read parsed architecture specs, PRDs, and security guardrails directly from `docs/*.md`.
 
 2. **Impact & File Delta Analysis**:
-   - Identify existing classes, functions, and interfaces to modify, new files to create, and files to delete and ignore.
+   - Identify existing classes, functions, and interfaces to modify vs. new files to create vs. files to delete and ignore.
    - Map exact class/module names, method signatures, parameter types, return values, and annotation/decorator constraints.
 
 3. **Explicit Assumptions & Open Questions Logging**:
@@ -65,23 +65,22 @@ When no open Pull Request exists for the plan branch (`feature/plan-<subtask_id>
 
 ---
 
-### Mode B: REVISE Mode (PR Review & Verifier Audit Ingestion)
+### Mode B: REVISE Mode (PR Review Comment Ingestion & Manual Re-Trigger)
 
-When re-triggered on an existing Pull Request (`--pr <pr_number>`) or in response to a `REJECTED` audit report:
+When manually re-triggered on an existing Pull Request (`--pr <pr_number>`) on `SDLC_GOVERNANCE_REPO`:
 
-1. **Ingest Audit Findings & PR Review Comments**:
-   - Ingest all line comments, review feedback, and the Verifier's **Remediation Action Plan** from `implementation-plans/<story-id>/<subtask_id>/audit-report.md`.
+1. **Fetch PR Review Comments**: Ingest all unresolved line comments, review feedback, and issue comments posted on the PR by human reviewers via GitHub API on `SDLC_GOVERNANCE_REPO`.
 
-2. **Surgical Delta-Fix Execution (Anti-Hallucination Mandate)**:
-   - **Targeted Remediation**: Apply fixes ONLY to the specific findings identified in the audit report (e.g. splitting files if $>10$, adjusting target class paths to match AST, adding missing BDD test scenarios).
-   - **Zero Speculative Churn**: Do NOT redesign unaffected modules, rename unflagged symbols, or invent new architectural layers.
-   - **Preserve Verified Work**: Keep all previously accepted sections intact.
+2. **Analyze Feedback & Delta Identification**:
+   - Identify requested changes (e.g., modifying method signatures, adding missing test scenarios, reducing blast radius, adjusting package structures).
+   - **Resolve Questions & Assumptions**: Update **Section 7 (Open Questions)** and **Section 8 (Assumptions)** based on reviewer input.
+   - **Preserve Unaffected Blueprint Sections**: Retain agreed-upon technical details that were not challenged.
 
-3. **Re-Refine Blueprint**: Update `implementation-plans/<story-id>/<subtask_id>/plan.md` incorporating the exact remediation items, re-verifying against `docs/architecture/AST_CODE_MAP.md`.
+3. **Re-Refine Blueprint**: Update `implementation-plans/<story-id>/<subtask_id>/plan.md` to incorporate requested adjustments, re-checking against AST maps (`docs/architecture/AST_CODE_MAP.md`) and parsed specs (`docs/*.md`).
 
-4. **Append Revision Changelog**: Document the exact remediation items resolved under **Section 9 (Revision Changelog)**.
+4. **Append Revision Changelog**: Document all modifications made in response to reviewer comments under **Section 9 (Revision Changelog)**.
 
-5. **Push Branch Update**: Update `implementation-plans/<story-id>/<subtask_id>/plan.md` on branch `feature/plan-<subtask_id>` in `SDLC_GOVERNANCE_REPO` and post a summary comment to trigger the Verifier re-audit.
+5. **Push Branch Update**: Update `implementation-plans/<story-id>/<subtask_id>/plan.md` on branch `feature/plan-<subtask_id>` in `SDLC_GOVERNANCE_REPO` and post a revision summary comment back to the PR.
 
 ---
 

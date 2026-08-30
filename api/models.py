@@ -168,3 +168,41 @@ class ImplementationPlanResponse(BaseModel):
     details: Dict[str, Any] = Field(default_factory=dict)
 
 
+class PlanVerifierRequest(BaseModel):
+    story_id: str = Field(
+        default="STORY-101", description="Parent Story ID (e.g. STORY-101)"
+    )
+    subtask_id: str = Field(
+        default="SUBTASK-STORY-101-1",
+        description="Target Subtask ID (e.g. SUBTASK-STORY-101-1)",
+    )
+    plan_file: Optional[str] = Field(
+        default=None, description="Optional path to implementation plan markdown file"
+    )
+    plan_content: Optional[str] = Field(
+        default=None, description="Optional raw implementation plan markdown content"
+    )
+    target_codebase_repo: Optional[str] = Field(
+        default="poojabasker20/springboot-hello-world",
+        description="Target codebase repository name",
+    )
+    sdlc_repo: Optional[str] = Field(
+        default=None,
+        description="Governance repository name",
+    )
+    pr_number: Optional[int] = Field(
+        default=None, description="Optional PR number to post audit comments to"
+    )
+
+
+class PlanVerifierResponse(BaseModel):
+    status: str
+    verdict: str
+    score: int
+    subtask_id: str
+    findings_count: int = 0
+    report_path: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+
