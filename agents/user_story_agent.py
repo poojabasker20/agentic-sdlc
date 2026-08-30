@@ -45,7 +45,7 @@ class UserStoryRefinerAgent:
     )
     location = os.getenv("GOOGLE_CLOUD_LOCATION") or os.getenv("GCP_LOCATION") or gcp_location
 
-    if not project_id and not os.getenv("GEMINI_API_KEY"):
+    if not project_id:
       try:
         import google.auth
         _, auth_project = google.auth.default()
@@ -60,18 +60,10 @@ class UserStoryRefinerAgent:
         self.genai_client = genai.Client(
             vertexai=True, project=project_id, location=location
         )
-        print(f"✓ Initialized Vertex AI GenAI client (project={project_id}, location={location})")
+        print(f"Initialized Vertex AI GenAI client (project={project_id}, location={location})")
       except Exception as e:
         raise RuntimeError(
             f"Failed to initialize Vertex AI client with project='{project_id}' and location='{location}': {e}"
-        ) from e
-    elif os.getenv("GEMINI_API_KEY"):
-      try:
-        self.genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        print(f"✓ Initialized GenAI client with GEMINI_API_KEY")
-      except Exception as e:
-        raise RuntimeError(
-            f"Failed to initialize GenAI client with GEMINI_API_KEY: {e}"
         ) from e
     else:
       raise ValueError("Neither Google Cloud Project ID nor GEMINI_API_KEY was provided.")
@@ -96,11 +88,11 @@ class UserStoryRefinerAgent:
             config=config,
         )
         data = json.loads(response.text)
-        print(f"✓ Successfully generated User Story using model `{model_name}`")
+        print(f"Successfully generated User Story using model `{model_name}`")
         return UserStoryPayload(**data)
       except Exception as err:
         errors.append(f"{model_name}: {err}")
-        print(f"⚠️ Model `{model_name}` failed: {err}")
+        print(f"Model `{model_name}` failed: {err}")
         continue
 
     raise RuntimeError(
@@ -110,18 +102,20 @@ class UserStoryRefinerAgent:
   def run_stage(
       self, story_id: str, pm_goal: str, context_docs: str
   ) -> Dict[str, Any]:
-    branch_name = f"feature/story-{story_id.lower()}"
-    file_path = f"user-stories/{story_id.upper()}.md"
+    clean_id = re.sub(r"^story-?", "", story_id, flags=re.IGNORECASE).strip()
+    norm_story_id = f"STORY-{clean_id.upper()}" if clean_id else story_id.upper()
+    branch_name = f"feature/story-{clean_id.lower()}" if clean_id else f"feature/{story_id.lower()}"
+    file_path = f"user-stories/{norm_story_id}.md"
 
     existing_pr = self.publisher.get_open_pr_for_branch(branch_name)
 
     if not existing_pr:
       return self._run_create_mode(
-          story_id, pm_goal, context_docs, branch_name, file_path
+          norm_story_id, pm_goal, context_docs, branch_name, file_path
       )
     else:
       return self._run_revise_mode(
-          existing_pr, story_id, pm_goal, context_docs, branch_name, file_path
+          existing_pr, norm_story_id, pm_goal, context_docs, branch_name, file_path
       )
 
   def _run_create_mode(
@@ -155,7 +149,7 @@ class UserStoryRefinerAgent:
     )
 
     pr_body = (
-        f"## 🤖 Agentic SDLC - Stage 1: User Story Draft\n\n"
+        f"## Agentic SDLC - Stage 1: User Story Draft\n\n"
         f"**Story ID:** `{payload.story_id}`\n"
         f"**Title:** {payload.title}\n\n"
         f"### Overview\n"
@@ -189,12 +183,13 @@ class UserStoryRefinerAgent:
       branch_name: str,
       file_path: str,
   ) -> Dict[str, Any]:
+    target_branch = pr.head.ref or branch_name
     comments = self.publisher.fetch_pr_comments(pr)
     if not comments:
       return {"status": "NO_NEW_COMMENTS", "pr_number": pr.number}
 
     current_file = self.publisher.repo.get_contents(
-        file_path, ref=branch_name
+        file_path, ref=target_branch
     )
     current_markdown = current_file.decoded_content.decode("utf-8")
 
@@ -225,13 +220,13 @@ class UserStoryRefinerAgent:
         file_path=file_path,
         content=payload.rendered_markdown,
         commit_message=commit_msg,
-        branch_name=branch_name,
+        branch_name=target_branch,
     )
 
     pr.create_issue_comment(
         "🤖 **User Story Updated Based on Feedback**\n\n"
         f"**Revision Summary:**\n{payload.revision_changelog or 'Incorporated requested updates.'}\n\n"
-        f"Please review the latest commit on branch `{branch_name}`."
+        f"Please review the latest commit on branch `{target_branch}`."
     )
 
     return {

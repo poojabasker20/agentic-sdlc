@@ -23,6 +23,7 @@ class GitHubPublisherService:
       branch_name: str = "main",
   ) -> str:
     """Creates or updates a file on a specified branch."""
+    self.create_branch_if_not_exists(branch_name)
     try:
       existing_file = self.repo.get_contents(file_path, ref=branch_name)
       self.repo.update_file(
@@ -94,6 +95,6 @@ class GitHubPublisherService:
     issue_comments = [
         f"{c.user.login}: {c.body}"
         for c in pr.get_issue_comments()
-        if not c.body.startswith("🤖") and not c.user.login.endswith("[bot]")
+        if not c.user.login.endswith("[bot]")
     ]
     return review_comments + issue_comments
