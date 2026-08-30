@@ -13,17 +13,14 @@ on:
         required: true
         default: "goals/GOAL-101.md"
 
-  # PR Conversation comments
-  issue_comment:
-    types: [created]
-
-  # Inline Code Diff comments
-  pull_request_review_comment:
-    types: [created]
-
-  # Submitted PR Reviews
+  # Trigger ONLY once when the reviewer submits/publishes their PR review
   pull_request_review:
     types: [submitted]
+
+# Prevent duplicate / overlapping runs on the same PR
+concurrency:
+  group: user-story-agent-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   refine-user-story:
@@ -32,11 +29,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (
-        (
-          (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
-          github.event_name == 'pull_request_review_comment' ||
-          github.event_name == 'pull_request_review'
-        ) &&
+        github.event_name == 'pull_request_review' &&
         !endsWith(github.actor, '[bot]')
       )
     runs-on: ubuntu-latest
