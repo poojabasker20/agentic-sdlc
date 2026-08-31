@@ -1,6 +1,6 @@
 """GCS-to-GitHub Multimodal Hybrid PDF Document Parser Service.
 
-Handles multi-page tables, code snippets spanning page boundaries, and
+Handles multi-page tables, spatial layout order, code snippets, and
 visual flowcharts/diagrams via Vertex AI Gemini Vision.
 """
 
@@ -55,7 +55,7 @@ class PdfParserService:
 
     if not project_id:
       try:
-        import google.auth 
+        import google.auth
         _, auth_project = google.auth.default()
         project_id = auth_project
       except Exception as auth_err:
@@ -100,7 +100,7 @@ class PdfParserService:
     return self._bucket
 
   def parse_pdf(self, pdf_bytes: bytes, source_filename: str) -> str:
-    """Parses PDF bytes into structured LLM-ready Markdown."""
+    """Parses PDF bytes into structured LLM-ready Markdown while preserving spatial layout order."""
     markdown_sections: List[str] = [
         f"# Document Specification: `{source_filename}`\n",
         "> *Auto-parsed Multimodal PDF artifact for Agentic SDLC context"
@@ -116,7 +116,7 @@ class PdfParserService:
           page_num = page_idx + 1
           page_lines: List[str] = [f"## Page {page_num}\n"]
 
-          # Extract & Describe Architecture Diagrams / Flowcharts (Vertex AI Vision)
+          # Vision Diagram Extraction
           if page_idx < len(pymupdf_doc) and self.genai_client:
             pymupdf_page = pymupdf_doc[page_idx]
             images = pymupdf_page.get_images()
@@ -132,49 +132,58 @@ class PdfParserService:
                     f"### Page Diagrams & Flowcharts\n{diagram_summary}\n"
                 )
 
-          # Extract & Format Tables (with <br> cell line-break preservation)
-          tables = page.extract_tables()
+          # Spatial Interleaved Text & Table Extraction
           found_table_objs = page.find_tables()
 
-          for table in tables:
-            table_md, current_headers = self._process_table(
-                table, previous_table_headers
-            )
-            if table_md:
-              page_lines.append(f"\n{table_md}\n")
-              previous_table_headers = current_headers
+          if not found_table_objs:
+            # No tables on page: extract text normally
+            text = page.extract_text() or ""
+            cleaned_text = self._clean_text_and_code(text)
+            if cleaned_text:
+              page_lines.append(cleaned_text)
+          else:
+            # Sort tables vertically by top coordinate (y0)
+            sorted_tables = sorted(found_table_objs, key=lambda t: t.bbox[1])
+            raw_tables = page.extract_tables()
 
-          # Extract Page Text (Filter out table bounding boxes to avoid text duplication)
-          text_page = page
-          if found_table_objs:
-            table_bboxes = [t.bbox for t in found_table_objs]
+            current_top = 0
+            page_height = page.height
 
-            def not_in_table(obj):
-              x0, top, x1, bottom = (
-                  obj.get("x0", 0),
-                  obj.get("top", 0),
-                  obj.get("x1", 0),
-                  obj.get("bottom", 0),
-              )
-              return not any(
-                  tb[0] <= x0 and x1 <= tb[2] and tb[1] <= top and bottom <= tb[3]
-                  for tb in table_bboxes
-              )
+            for idx, t_obj in enumerate(sorted_tables):
+              x0, top, x1, bottom = t_obj.bbox
 
-            try:
-              text_page = page.filter(not_in_table)
-            except Exception as filter_err:
-              logger.warning(
-                  "Bounding box table filter skipped on page %d: %s",
-                  page_num,
-                  filter_err,
-              )
-              text_page = page
+              # Crop and extract text slice above current table
+              if top > current_top + 5:
+                slice_box = (0, current_top, page.width, top)
+                try:
+                  text_slice = page.crop(slice_box).extract_text() or ""
+                  cleaned_slice = self._clean_text_and_code(text_slice)
+                  if cleaned_slice:
+                    page_lines.append(cleaned_slice)
+                except Exception:
+                  pass
 
-          text = text_page.extract_text() or ""
-          cleaned_text = self._clean_text_and_code(text)
-          if cleaned_text:
-            page_lines.append(cleaned_text)
+              # Process and format table grid at its natural vertical position
+              if idx < len(raw_tables):
+                table_md, current_headers = self._process_table(
+                    raw_tables[idx], previous_table_headers
+                )
+                if table_md:
+                  page_lines.append(f"\n{table_md}\n")
+                  previous_table_headers = current_headers
+
+              current_top = max(current_top, bottom)
+
+            # Crop and extract text slice below last table to page bottom
+            if current_top < page_height - 5:
+              slice_box = (0, current_top, page.width, page_height)
+              try:
+                text_slice = page.crop(slice_box).extract_text() or ""
+                cleaned_slice = self._clean_text_and_code(text_slice)
+                if cleaned_slice:
+                  page_lines.append(cleaned_slice)
+              except Exception:
+                pass
 
           markdown_sections.append("\n".join(page_lines))
     finally:
@@ -203,7 +212,6 @@ class PdfParserService:
         " 'NO_DIAGRAMS'."
     )
 
-    # Deduplicate candidate models while preserving order
     raw_models = [
         self.vision_model,
         "gemini-3.7-flash",
@@ -308,21 +316,41 @@ class PdfParserService:
     return "\n".join(md_lines), current_headers
 
   def _clean_text_and_code(self, text: str) -> str:
-    """Strips running headers/footers, standardizes section headings, and cleans stray artifacts."""
-    # Remove page numbers and common header/footer text
+    """Strips running headers/footers, unwraps multiline titles, and standardizes section headings."""
+    if not text:
+      return ""
+
+    # Strip page headers & footers
     text = re.sub(
         r"^(Page\s+\d+\s+of\s+\d+|Confidential|Internal Use Only)$",
         "",
         text,
         flags=re.M | re.I,
     )
-    # Remove stray "None" artifacts from PDF export containers
     text = re.sub(r"^None\s*$", "", text, flags=re.M)
 
-    # Refined Heading Promotion: Only match section headers with sub-numbers (e.g., 2.1, 3.2.1)
-    # This avoids converting numbered list items (e.g., "1. PCI-DSS Compliance") into headings!
+    # Join split multiline section titles (e.g., "5. Auditability...\nLogging")
     text = re.sub(
-        r"^(\d+\.\d+(?:\.\d+)?\s+[A-Z].*)$", r"### \1", text, flags=re.M
+        r"^(\d+(?:\.\d+)*\s+[A-Z][^\n:]+)\n([A-Z][A-Za-z0-9\s&,/-]+)$",
+        r"\1 \2",
+        text,
+        flags=re.M,
+    )
+
+    # Top-Level Section Headings: e.g., "1. Executive Summary..." -> ## 1. Executive Summary...
+    text = re.sub(
+        r"^(\d+\.\s+[A-Z][^\n:]+)$",
+        r"## \1",
+        text,
+        flags=re.M,
+    )
+
+    # Sub-Level Section Headings: e.g., "2.1 Data Classification..." -> ### 2.1 Data Classification...
+    text = re.sub(
+        r"^(\d+\.\d+(?:\.\d+)?\s+[A-Z][^\n:]+)$",
+        r"### \1",
+        text,
+        flags=re.M,
     )
 
     return text.strip()
@@ -337,7 +365,6 @@ class PdfParserService:
       if line.strip().startswith("```"):
         in_code_block = not in_code_block
 
-      # If inside code block and hit page divider, keep code block intact
       if in_code_block and line.strip() == "---":
         continue
 
