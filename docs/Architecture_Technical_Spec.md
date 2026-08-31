@@ -80,52 +80,50 @@ Client
 
 ## Page 3
 
-### 📊 Page Diagrams & Flowcharts
+### Page Diagrams & Flowcharts
 > **[Architecture Diagram & Component Flow - Page 3]**:
-Based on the provided document page, here is a detailed description of the architecture diagram:
+Based on the provided page image, here is a detailed description of the architecture diagram:
 
 ---
 
-### **Architecture Overview**
-The diagram depicts a three-tier execution and data-flow model for a Spring Boot RESTful web application.
+### **Architecture Diagram Overview**
+
+The diagram illustrates the layered software component model and execution flow of a Spring Boot-based web application.
 
 ---
 
-### **Architecture Components & Layers**
+### **1. Components & Layers**
 
-1. **Presentation / Web Layer (`@RestController`)**
-   - **Implementation File:** `GreetingController.java`
-   - **Exposed Endpoints:**
-     - `GET /`
-     - `GET /hello`
-     - `GET /hello/{name}`
-   - **Role:** Handles incoming HTTP client requests across the defined routing endpoints.
+* **Presentation / Web Layer (`@RestController`)**
+  * **File/Class:** `GreetingController.java`
+  * **Exposed Endpoints:**
+    * `GET /`
+    * `GET /hello`
+    * `GET /hello/{name}`
+  * **Role:** Handles incoming HTTP requests and dispatches responses.
 
-2. **Data Transfer Model (`Java Record DTO`)**
-   - **Implementation File:** `Greeting.java`
-   - **Payload Format:** JSON structure defined as:
-     ```json
-     {
-       "message": "String",
-       "recipient": "String"
-     }
-     ```
-   - **Role:** Serves as the immutable data contract/DTO returned by the presentation layer to the client.
+* **Data Transfer Model (Java Record DTO)**
+  * **File/Class:** `Greeting.java`
+  * **Payload Structure:** Serialized JSON payload containing:
+    * `"message"`: `String`
+    * `"recipient"`: `String`
+  * **Role:** Acts as the data transfer object representing the response data contract.
 
-3. **Runtime / Container Layer**
-   - **Component:** `Embedded Web Container (Spring Boot Tomcat Engine)`
-   - **Role:** The underlying application server/container that hosts and executes the Spring Boot application and handles servlet execution.
+* **Embedded Web Container**
+  * **Technology:** Spring Boot Tomcat Engine
+  * **Role:** The underlying runtime server environment that hosts and executes the application components.
 
 ---
 
-### **Data Flow and Connections**
+### **2. Data Flow & Connections**
 
-* **Presentation Layer $\rightarrow$ Data Transfer Model:**
-  * **Relationship/Action:** `Returns`
-  * The `GreetingController` produces and returns instances of the `Greeting` record DTO (serialized as JSON).
-* **Data Transfer Model $\rightarrow$ Embedded Web Container:**
-  * **Relationship/Action:** `Executes on`
-  * The entire web and model layer operates within the embedded Tomcat engine runtime.
+1. **Presentation Layer $\rightarrow$ Data Transfer Model**
+   * **Connection Label:** `Returns`
+   * **Description:** When endpoints in `GreetingController.java` are called, the controller creates and returns instances of the `Greeting.java` record (DTO).
+
+2. **Data Transfer Model / Web Layer $\rightarrow$ Embedded Web Container**
+   * **Connection Label:** `Executes on`
+   * **Description:** The entire application execution, request processing, and serialization run on the embedded Spring Boot Tomcat Engine.
 
 ### 2.3 Data Contract Specification
 The application defines a single, immutable data transfer record (Greeting) representing
