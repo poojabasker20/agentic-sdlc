@@ -1,20 +1,25 @@
-"""GCS-to-GitHub Multimodal Hybrid PDF Document Parser Service."""
+"""GCS-to-GitHub Multimodal Hybrid PDF Document Parser Service.
+
+Handles multi-page tables, code snippets spanning page boundaries, and
+visual flowcharts/diagrams via Vertex AI Gemini Vision.
+"""
 
 import io
 import logging
 import os
 import re
 from typing import List, Optional
-import pymupdf
 from google import genai
 from google.cloud import storage
 import pdfplumber
+import pymupdf
 from utils.github_publisher import GitHubPublisherService
 
 logger = logging.getLogger(__name__)
 
 
 class PdfParserService:
+  """Multimodal PDF Parser handling multi-page tables, code snippets, and diagrams via Vertex AI."""
 
   def __init__(
       self,
@@ -42,17 +47,22 @@ class PdfParserService:
         or os.getenv("GCP_PROJECT")
         or os.getenv("GCLOUD_PROJECT")
     )
-    location = os.getenv("GOOGLE_CLOUD_LOCATION") or os.getenv("GCP_LOCATION") or gcp_location
+    location = (
+        os.getenv("GOOGLE_CLOUD_LOCATION")
+        or os.getenv("GCP_LOCATION")
+        or gcp_location
+    )
 
-    if not project_id and not os.getenv("GEMINI_API_KEY"):
+    if not project_id:
       try:
-        import google.auth
+        import google.auth 
         _, auth_project = google.auth.default()
         project_id = auth_project
       except Exception as auth_err:
         raise RuntimeError(
-            f"Failed to detect Google Cloud credentials for Vertex AI GenAI client. "
-            f"Please set GOOGLE_CLOUD_PROJECT. Details: {auth_err}"
+            "Failed to detect Google Cloud credentials for Vertex AI GenAI"
+            " client. Please set GOOGLE_CLOUD_PROJECT. Details:"
+            f" {auth_err}"
         ) from auth_err
 
     if project_id:
@@ -60,13 +70,19 @@ class PdfParserService:
         self.genai_client = genai.Client(
             vertexai=True, project=project_id, location=location
         )
-        print(f"✓ Initialized Vertex AI GenAI client (project={project_id}, location={location}, model={self.vision_model})")
+        logger.info(
+            "Initialized Vertex AI GenAI client (project=%s, location=%s,"
+            " model=%s)",
+            project_id,
+            location,
+            self.vision_model,
+        )
       except Exception as e:
         raise RuntimeError(
             f"Failed to initialize Vertex AI GenAI client with project='{project_id}' and location='{location}': {e}"
         ) from e
     else:
-      raise ValueError("Neither Google Cloud Project ID was provided.")
+      raise ValueError("No Google Cloud Project ID was provided.")
 
   @property
   def bucket(self):
@@ -78,9 +94,9 @@ class PdfParserService:
       except Exception as e:
         raise RuntimeError(
             f"Failed to connect to GCS bucket '{self.bucket_name}'. "
-            f"Google Cloud Application Default Credentials (ADC) were not found or lack permissions. "
-            f"Error details: {e}"
-        )
+            "Google Cloud Application Default Credentials (ADC) were not found"
+            f" or lack permissions. Error details: {e}"
+        ) from e
     return self._bucket
 
   def parse_pdf(self, pdf_bytes: bytes, source_filename: str) -> str:
@@ -100,6 +116,7 @@ class PdfParserService:
           page_num = page_idx + 1
           page_lines: List[str] = [f"## Page {page_num}\n"]
 
+          # Extract & Describe Architecture Diagrams / Flowcharts (Vertex AI Vision)
           if page_idx < len(pymupdf_doc) and self.genai_client:
             pymupdf_page = pymupdf_doc[page_idx]
             images = pymupdf_page.get_images()
@@ -115,7 +132,10 @@ class PdfParserService:
                     f"### Page Diagrams & Flowcharts\n{diagram_summary}\n"
                 )
 
+          # Extract & Format Tables (with <br> cell line-break preservation)
           tables = page.extract_tables()
+          found_table_objs = page.find_tables()
+
           for table in tables:
             table_md, current_headers = self._process_table(
                 table, previous_table_headers
@@ -124,7 +144,34 @@ class PdfParserService:
               page_lines.append(f"\n{table_md}\n")
               previous_table_headers = current_headers
 
-          text = page.extract_text() or ""
+          # Extract Page Text (Filter out table bounding boxes to avoid text duplication)
+          text_page = page
+          if found_table_objs:
+            table_bboxes = [t.bbox for t in found_table_objs]
+
+            def not_in_table(obj):
+              x0, top, x1, bottom = (
+                  obj.get("x0", 0),
+                  obj.get("top", 0),
+                  obj.get("x1", 0),
+                  obj.get("bottom", 0),
+              )
+              return not any(
+                  tb[0] <= x0 and x1 <= tb[2] and tb[1] <= top and bottom <= tb[3]
+                  for tb in table_bboxes
+              )
+
+            try:
+              text_page = page.filter(not_in_table)
+            except Exception as filter_err:
+              logger.warning(
+                  "Bounding box table filter skipped on page %d: %s",
+                  page_num,
+                  filter_err,
+              )
+              text_page = page
+
+          text = text_page.extract_text() or ""
           cleaned_text = self._clean_text_and_code(text)
           if cleaned_text:
             page_lines.append(cleaned_text)
@@ -136,7 +183,10 @@ class PdfParserService:
     full_markdown = "\n\n---\n\n".join(markdown_sections)
     return self._stitch_multipage_code_blocks(full_markdown)
 
-  def _describe_page_diagrams(self, pymupdf_page, page_num: int) -> Optional[str]:
+  def _describe_page_diagrams(
+      self, pymupdf_page, page_num: int
+  ) -> Optional[str]:
+    """Renders page image and uses Vertex AI Gemini Vision to describe diagrams/flowcharts."""
     if not self.genai_client:
       return None
 
@@ -144,19 +194,30 @@ class PdfParserService:
     img_bytes = pix.tobytes("png")
 
     prompt = (
-        "Examine this page image from an engineering technical specification document. "
-        "If this page contains an architecture diagram, flowchart, sequence diagram, component model, or data flow, "
-        "provide a comprehensive Markdown description of the architecture components, layers, connections, entities, and data flows. "
-        "If there are NO diagrams or charts on this page, respond with exact text 'NO_DIAGRAMS'."
+        "Examine this page image from an engineering technical specification"
+        " document. If this page contains an architecture diagram, flowchart,"
+        " sequence diagram, component model, or data flow, provide a"
+        " comprehensive Markdown description of the architecture components,"
+        " layers, connections, entities, and data flows. If there are NO"
+        " diagrams or charts on this page, respond with exact text"
+        " 'NO_DIAGRAMS'."
     )
 
-    # Attempt with configured model, then fallback models
-    candidate_models = [self.vision_model, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.7-flash"]
-    seen = set()
-    models_to_try = [m for m in candidate_models if not (m in seen or seen.add(m))]
+    # Deduplicate candidate models while preserving order
+    raw_models = [
+        self.vision_model,
+        "gemini-3.7-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+    ]
+    models_to_try = []
+    for m in raw_models:
+      if m not in models_to_try:
+        models_to_try.append(m)
 
     errors = []
     description = None
+
     for model_name in models_to_try:
       try:
         response = self.genai_client.models.generate_content(
@@ -170,35 +231,64 @@ class PdfParserService:
         )
         description = response.text.strip() if response.text else None
         if description:
-          print(f"Successfully extracted diagram description for Page {page_num} using model `{model_name}`")
+          logger.info(
+              "Successfully extracted diagram description for Page %d using"
+              " model `%s`",
+              page_num,
+              model_name,
+          )
           break
       except Exception as model_err:
         errors.append(f"{model_name}: {model_err}")
-        print(f"Model `{model_name}` failed for Page {page_num}: {model_err}")
+        logger.debug(
+            "Model `%s` failed for Page %d: %s", model_name, page_num, model_err
+        )
         continue
 
     if description is None and errors:
-      raise RuntimeError(
-          f"Vision model extraction failed for diagram on Page {page_num}. "
-          f"Tried models: {'; '.join(errors)}"
+      logger.warning(
+          "Vision diagram extraction skipped on Page %d. Errors: %s",
+          page_num,
+          "; ".join(errors),
       )
+      return None
 
     if not description or "NO_DIAGRAMS" in description:
       return None
-    return f"> **[Architecture Diagram & Component Flow - Page {page_num}]**:\n{description}"
+
+    return (
+        f"> **[Architecture Diagram & Component Flow - Page {page_num}]**:\n{description}"
+    )
 
   def _process_table(
-      self, table: List[List[Optional[str]]], prev_headers: Optional[List[str]]
+      self,
+      table: List[List[Optional[str]]],
+      prev_headers: Optional[List[str]],
   ) -> tuple[Optional[str], Optional[List[str]]]:
+    """Stitches multi-page tables and formats clean Markdown grids with cell line-break preservation."""
     if not table or not table[0]:
       return None, prev_headers
 
-    cleaned_rows = [
-        [(cell.replace("\n", " ").strip() if cell else "") for cell in row]
-        for row in table
-    ]
+    cleaned_rows = []
+    for row in table:
+      cleaned_row = []
+      for cell in row:
+        if cell:
+          c = (
+              cell.replace("|", "\\|")
+              .replace("\r\n", "<br>")
+              .replace("\n", "<br>")
+              .strip()
+          )
+          cleaned_row.append(c)
+        else:
+          cleaned_row.append("")
+      cleaned_rows.append(cleaned_row)
+
     current_headers = cleaned_rows[0]
-    is_repeated_header = prev_headers is not None and current_headers == prev_headers
+    is_repeated_header = (
+        prev_headers is not None and current_headers == prev_headers
+    )
 
     if is_repeated_header:
       body_rows = cleaned_rows[1:]
@@ -218,6 +308,8 @@ class PdfParserService:
     return "\n".join(md_lines), current_headers
 
   def _clean_text_and_code(self, text: str) -> str:
+    """Strips running headers/footers, standardizes section headings, and cleans stray artifacts."""
+    # Remove page numbers and common header/footer text
     text = re.sub(
         r"^(Page\s+\d+\s+of\s+\d+|Confidential|Internal Use Only)$",
         "",
@@ -226,28 +318,41 @@ class PdfParserService:
     )
     # Remove stray "None" artifacts from PDF export containers
     text = re.sub(r"^None\s*$", "", text, flags=re.M)
-    text = re.sub(r"^(\d+\.[\d\.]*\s+[A-Z].*)$", r"### \1", text, flags=re.M)
+
+    # Refined Heading Promotion: Only match section headers with sub-numbers (e.g., 2.1, 3.2.1)
+    # This avoids converting numbered list items (e.g., "1. PCI-DSS Compliance") into headings!
+    text = re.sub(
+        r"^(\d+\.\d+(?:\.\d+)?\s+[A-Z].*)$", r"### \1", text, flags=re.M
+    )
+
     return text.strip()
 
   def _stitch_multipage_code_blocks(self, markdown_text: str) -> str:
+    """Ensures code blocks (```) broken across page boundaries remain contiguous."""
     lines = markdown_text.split("\n")
     in_code_block = False
     fixed_lines = []
+
     for line in lines:
       if line.strip().startswith("```"):
         in_code_block = not in_code_block
+
+      # If inside code block and hit page divider, keep code block intact
       if in_code_block and line.strip() == "---":
         continue
+
       fixed_lines.append(line)
+
     if in_code_block:
       fixed_lines.append("```")
+
     return "\n".join(fixed_lines)
 
   def process_and_publish_document(
       self,
       gcs_blob_name: str,
       target_github_branch: str = "main",
-      github_output_dir: str = "docs/",
+      github_output_dir: str = "docs/parsed",
   ) -> str:
     """Streams PDF from GCS, parses to Markdown, and commits to GitHub."""
     blob = self.bucket.blob(gcs_blob_name)
@@ -277,7 +382,7 @@ class PdfParserService:
       self,
       prefix: str = "",
       target_github_branch: str = "main",
-      github_output_dir: str = "docs/",
+      github_output_dir: str = "docs/parsed",
   ) -> List[str]:
     """Iterates through all PDF files in the GCS bucket, parses each to Markdown, and commits to GitHub."""
     blobs = list(self.bucket.list_blobs(prefix=prefix))
