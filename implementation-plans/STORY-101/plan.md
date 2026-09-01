@@ -455,6 +455,7 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
   4. 4. - Correct structured JSON format is produced.
   5. 5. - All expected fields (`requestedLang`, `negotiatedLang`, `timeZone`, `timeOfDay`, `name` (masked/hashed), `actorId`, `event_id`, `timestamp`, `action`) are present.
   6. 6. - PII masking/hashing for the `name` field is correctly applied.
+  7. 7. - The `actor_id` field is present and correctly logged, including the 'system' fallback when not provided.
 
 #### Step 3.7: Create Unit Tests for GreetingConfig
 
@@ -513,6 +514,7 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
   - [ ] Test `logLocalizationRequest` produces correct structured JSON output.
   - [ ] Test `logLocalizationRequest` correctly masks/hashes the `name` field.
   - [ ] Test all expected fields are present in the log output.
+  - [ ] Test `logLocalizationRequest` includes `actor_id` and defaults to 'system' when not provided.
 
 - **Target Test File:** `src/test/java/com/nordea/demo/helloworld/config/GreetingConfigTest.java`
 - **Test Scenarios:**
@@ -542,16 +544,16 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
 
 ## Agent Assumptions Made
 
-- **Assumption 1:** Assumption 1: Time partition logic evaluates local client time: Morning (05:00-11:59), Afternoon (12:00-17:59), Evening (18:00-04:59).
-- **Assumption 2:** Assumption 2: Invalid or missing `Time-Zone` header values fall back safely to UTC without throwing client 4xx errors.
-- **Assumption 3:** Assumption 3: Legacy responses without query parameters remain byte-compatible with the existing `Greeting` record structure.
-- **Assumption 4:** Assumption 4: The `Accept-Language` header negotiation will prioritize the first supported language in the list, or the one with the highest 'q' value if multiple supported languages are present.
-- **Assumption 5:** Assumption 5: New configuration for `GreetingConfig` (languages and salutations) will be added to `application.properties` or `application.yml`.
-- **Assumption 6:** Assumption 6: Structured JSON logging will be implemented using Logback with a JSON layout, configured in `src/main/resources/logback-spring.xml`.
+- **Assumption 1:** Time partition logic evaluates local client time: Morning (05:00-11:59), Afternoon (12:00-17:59), Evening (18:00-04:59).
+- **Assumption 2:** Invalid or missing `Time-Zone` header values fall back safely to UTC without throwing client 4xx errors.
+- **Assumption 3:** Legacy responses without query parameters remain byte-compatible with the existing `Greeting` record structure.
+- **Assumption 4:** The `Accept-Language` header negotiation will prioritize the first supported language in the list, or the one with the highest 'q' value if multiple supported languages are present.
+- **Assumption 5:** New configuration for `GreetingConfig` (languages and salutations) will be added to `application.properties` or `application.yml`.
+- **Assumption 6:** Structured JSON logging will be implemented using Logback with a JSON layout, configured in `src/main/resources/logback-spring.xml`.
 
 ## Revision Changelog
 
-- v1.0: Initial PR creation for tech lead review.v1.1: Addressed audit findings CHK-001 (clarified PII status of 'name' in logging) and CHK-003 (standardized Logback configuration file to logback-spring.xml).v1.2: Addressed reviewer comments: included `actor_id` in structured logging for SUBTASK-STORY-101-4 and corrected numbering style in detailed instructions across all subtasks.v1.3: Addressed audit findings CHK-001 (added unit test specification for StructuredLogger) and CHK-002 (modified PII handling for 'name' field in logs to enforce masking/hashing).v1.4: Remediated audit findings CHK-001 (added `GreetingConfigTest.java` and `GreetingContextTest.java` to SUBTASK-STORY-101-5 affected files, step-by-step guide, and testing strategy), CHK-002 (added `logback-spring.xml` to SUBTASK-STORY-101-4 affected files), and CHK-003 (clarified PII masking for 'name' in SUBTASK-STORY-101-4, Step 3.1 to explicitly use partial masking).
+- v1.0: Initial PR creation for tech lead review.v1.1: Addressed audit findings CHK-001 (clarified PII status of 'name' in logging) and CHK-003 (standardized Logback configuration file to logback-spring.xml).v1.2: Addressed reviewer comments: included `actor_id` in structured logging for SUBTASK-STORY-101-4 and corrected numbering style in detailed instructions across all subtasks.v1.3: Addressed audit findings CHK-001 (added unit test specification for StructuredLogger) and CHK-002 (modified PII handling for 'name' field in logs to enforce masking/hashing).v1.4: Remediated audit findings CHK-001 (added `GreetingConfigTest.java` and `GreetingContextTest.java` to SUBTASK-STORY-101-5 affected files, step-by-step guide, and testing strategy), CHK-002 (added `logback-spring.xml` to SUBTASK-STORY-101-4 affected files), and CHK-003 (clarified PII masking for 'name' in SUBTASK-STORY-101-4, Step 3.1 to explicitly use partial masking).v1.5: Addressed reviewer comments: included `actor_id` in structured logging for SUBTASK-STORY-101-4 and corrected numbering style in detailed instructions across all subtasks.
 
 ## Done When Checklist
 
