@@ -32,7 +32,7 @@ This subtask establishes the foundational data structures and configuration for 
   1. 1. Create a new Java class `GreetingConfig` in the `com.nordea.demo.helloworld.config` package.
   2. 2. Annotate the class with `@ConfigurationProperties(prefix = "greeting")` to bind properties from `application.properties`.
   3. 3. Define a `Map<String, Map<String, String>> languages` field to store greetings per language and time of day (e.g., `greeting.languages.en.morning=Good morning`).
-  4. 4. Define a `List<String> salutations` field to store supported salutations (e.g., `greeting.salutations=Mr,Ms,Dr`).
+  4. 4. Define a `List<String> salutations` field to store supported salutations (e.g., `greeting.salutations=Mr,Ms`).
   5. 5. Provide public getters for these fields.
 
 #### Step 3.2: Define Greeting Context Data Structure
@@ -104,9 +104,9 @@ This subtask introduces time zone handling and time-of-day categorization. It in
   1. 1. Create a new Java class `TimeZoneService` in the `com.nordea.demo.helloworld.service` package.
   2. 2. Annotate the class with `@Service`.
   3. 3. Implement a public method `ZoneId resolveTimeZone(String timeZoneHeader)`:
-  4. 4.   - If `timeZoneHeader` is null or empty, return `ZoneId.of("UTC")`.
-  5. 5.   - Use a `try-catch` block to parse `timeZoneHeader` using `ZoneId.of(timeZoneHeader)`.
-  6. 6.   - Catch `java.time.zone.ZoneRulesException` for invalid IDs and return `ZoneId.of("UTC")` as a fallback.
+  4. 4. - If `timeZoneHeader` is null or empty, return `ZoneId.of("UTC")`.
+  5. 5. - Use a `try-catch` block to parse `timeZoneHeader` using `ZoneId.of(timeZoneHeader)`.
+  6. 6. - Catch `java.time.zone.ZoneRulesException` for invalid IDs and return `ZoneId.of("UTC")` as a fallback.
 
 #### Step 3.2: Implement Time-of-Day Resolver Utility
 
@@ -114,9 +114,9 @@ This subtask introduces time zone handling and time-of-day categorization. It in
 - **Detailed Instructions:**
   1. 1. Create a new Java class `TimeOfDayResolver` in the `com.nordea.demo.helloworld.util` package.
   2. 2. Implement a public static method `String getTimeOfDay(LocalTime localTime)`:
-  3. 3.   - Define time ranges: Morning (05:00-11:59), Afternoon (12:00-17:59), Evening (18:00-04:59).
-  4. 4.   - Use `localTime.isBefore()` and `localTime.isAfter()` to determine the correct time segment.
-  5. 5.   - Return "morning", "afternoon", or "evening" as a String.
+  3. 3. - Define time ranges: Morning (05:00-11:59), Afternoon (12:00-17:59), Evening (18:00-04:59).
+  4. 4. - Use `localTime.isBefore()` and `localTime.isAfter()` to determine the correct time segment.
+  5. 5. - Return "morning", "afternoon", or "evening" as a String.
 
 #### Step 3.3: Integrate Time-Aware Logic into GreetingService
 
@@ -125,10 +125,10 @@ This subtask introduces time zone handling and time-of-day categorization. It in
   1. 1. Inject `TimeZoneService` and `TimeOfDayResolver` into `GreetingService`.
   2. 2. Modify the existing `getGreeting(String name)` method or add a new method (e.g., `getGreeting(GreetingContext context)`) to accept a `GreetingContext` (from SUBTASK-STORY-101-1).
   3. 3. Inside the method:
-  4. 4.   - Use `context.timeZone()` to get the `ZoneId`.
-  5. 5.   - Get the current `LocalTime` for that `ZoneId` (e.g., `LocalTime.now(context.timeZone())`).
-  6. 6.   - Use `TimeOfDayResolver.getTimeOfDay()` to determine the time segment.
-  7. 7.   - (Initial integration) For now, use a placeholder to indicate time-awareness in the greeting message (e.g., "Good " + timeOfDay + ", " + name + "!"). Full localization will be in SUBTASK-STORY-101-3.
+  4. 4. - Use `context.timeZone()` to get the `ZoneId`.
+  5. 5. - Get the current `LocalTime` for that `ZoneId` (e.g., `LocalTime.now(context.timeZone())`).
+  6. 6. - Use `TimeOfDayResolver.getTimeOfDay()` to determine the time segment.
+  7. 7. - (Initial integration) For now, use a placeholder to indicate time-awareness in the greeting message (e.g., "Good " + timeOfDay + ", " + name + "!"). Full localization will be in SUBTASK-STORY-101-3.
 
 ### 4. Blast Radius & Impact Analysis
 
@@ -199,10 +199,10 @@ This subtask refactors the GreetingService to fully support localization, saluta
   2. 2. Annotate the class with `@Service`.
   3. 3. Inject `GreetingConfig` (from SUBTASK-STORY-101-1).
   4. 4. Implement a public method `String negotiateLanguage(String langQueryParam, String acceptLanguageHeader)`:
-  5. 5.   - Prioritize `langQueryParam` if it's a supported language.
-  6. 6.   - If not, parse `acceptLanguageHeader` (e.g., `sv-SE,sv;q=0.9,en;q=0.8`) to find the best match among supported languages.
-  7. 7.   - Use `Locale.LanguageRange` and `Locale.lookup` for robust `Accept-Language` parsing.
-  8. 8.   - Fallback to "en" (English) if no supported language is found.
+  5. 5. - Prioritize `langQueryParam` if it's a supported language.
+  6. 6. - If not, parse `acceptLanguageHeader` (e.g., `sv-SE,sv;q=0.9,en;q=0.8`) to find the best match among supported languages.
+  7. 7. - Use `Locale.LanguageRange` and `Locale.lookup` for robust `Accept-Language` parsing.
+  8. 8. - Fallback to "en" (English) if no supported language is found.
   9. 9. Implement a public method `List<String> getSupportedLanguages()` that returns the keys from `GreetingConfig.languages`.
 
 #### Step 3.2: Implement Message Formatter Utility
@@ -211,8 +211,8 @@ This subtask refactors the GreetingService to fully support localization, saluta
 - **Detailed Instructions:**
   1. 1. Create a new Java class `MessageFormatter` in the `com.nordea.demo.helloworld.util` package.
   2. 2. Implement a public static method `String formatGreeting(String timeOfDayGreeting, String salutation, String name)`:
-  3. 3.   - If `salutation` is provided and not empty, format as `timeOfDayGreeting, salutation name!` (e.g., '¡Buenos días, Señor Gomez!').
-  4. 4.   - If `salutation` is not provided, format as `timeOfDayGreeting, name!` (e.g., 'Good morning, Bob!').
+  3. 3. - If `salutation` is provided and not empty, format as `timeOfDayGreeting, salutation name!` (e.g., '¡Buenos días, Señor Gomez!').
+  4. 4. - If `salutation` is not provided, format as `timeOfDayGreeting, name!` (e.g., 'Good morning, Bob!').
 
 #### Step 3.3: Refactor GreetingService for Localization and Salutations
 
@@ -220,14 +220,14 @@ This subtask refactors the GreetingService to fully support localization, saluta
 - **Detailed Instructions:**
   1. 1. Inject `GreetingConfig`, `LanguageNegotiationService`, `TimeZoneService`, `TimeOfDayResolver`, and `MessageFormatter` into `GreetingService`.
   2. 2. Create a new public method `Greeting getLocalizedGreeting(GreetingContext context)`:
-  3. 3.   - Call `languageNegotiationService.negotiateLanguage(context.language(), acceptLanguageHeader)` (the header will be passed from the controller in SUBTASK-STORY-101-4) to determine the `negotiatedLanguage`.
-  4. 4.   - Resolve `ZoneId` from `context.timeZone()` using `TimeZoneService`.
-  5. 5.   - Determine `timeOfDay` using `TimeOfDayResolver` and the local time for the resolved `ZoneId`.
-  6. 6.   - Retrieve the base greeting phrase from `greetingConfig.languages` using `negotiatedLanguage` and `timeOfDay`.
-  7. 7.   - If the specific greeting phrase is not found for the `negotiatedLanguage` and `timeOfDay`, fallback to the English equivalent or a generic English greeting.
-  8. 8.   - Construct the `recipient` string: If `context.salutation()` is present, prepend it to `context.name()`.
-  9. 9.   - Use `MessageFormatter.formatGreeting()` to create the final `message`.
-  10. 10.   - Return a new `Greeting(message, recipient)` record.
+  3. 3. - Call `languageNegotiationService.negotiateLanguage(context.language(), acceptLanguageHeader)` (the header will be passed from the controller in SUBTASK-STORY-101-4) to determine the `negotiatedLanguage`.
+  4. 4. - Resolve `ZoneId` from `context.timeZone()` using `TimeZoneService`.
+  5. 5. - Determine `timeOfDay` using `TimeOfDayResolver` and the local time for the resolved `ZoneId`.
+  6. 6. - Retrieve the base greeting phrase from `greetingConfig.languages` using `negotiatedLanguage` and `timeOfDay`.
+  7. 7. - If the specific greeting phrase is not found for the `negotiatedLanguage` and `timeOfDay`, fallback to the English equivalent or a generic English greeting.
+  8. 8. - Construct the `recipient` string: If `context.salutation()` is present, prepend it to `context.name()`.
+  9. 9. - Use `MessageFormatter.formatGreeting()` to create the final `message`.
+  10. 10. - Return a new `Greeting(message, recipient)` record.
   11. 11. Update existing `getGreeting(String name)` and `getDefaultGreeting()` methods to delegate to `getLocalizedGreeting` with default `GreetingContext` values (e.g., English, UTC, no salutation) to maintain backward compatibility.
 
 ### 4. Blast Radius & Impact Analysis
@@ -290,6 +290,7 @@ This subtask integrates the enhanced GreetingService into the GreetingController
 | `src/main/java/com/nordea/demo/helloworld/controller/GreetingController.java` | **Modify** | API / Controller | Extract query parameters and HTTP headers, construct GreetingContext, delegate to enhanced GreetingService, ensure backward compatibility, add X-Supported-Languages header. |
 | `src/main/java/com/nordea/demo/helloworld/logging/StructuredLogger.java` | **Create** | Cross-Cutting Concern | Implement structured JSON logging for localization demand and request metrics. |
 | `src/main/resources/application.properties` | **Modify** | Configuration | Add configuration for GreetingConfig and Logback JSON layout. |
+| `src/main/resources/logback-spring.xml` | **Create/Modify** | Logging Configuration | Configure Logback for structured JSON logging. |
 
 ### 3. Step-by-Step Technical Implementation Guide
 
@@ -300,10 +301,10 @@ This subtask integrates the enhanced GreetingService into the GreetingController
   1. 1. Create a new Java class `StructuredLogger` in the `com.nordea.demo.helloworld.logging` package.
   2. 2. Annotate the class with `@Component`.
   3. 3. Use `org.slf4j.Logger` for logging.
-  4. 4. Implement a public method `void logLocalizationRequest(String requestedLang, String negotiatedLang, String timeZone, String timeOfDay, String name)`:
-  5. 5.   - Log key-value pairs using `logger.info("Localization Request: {}", Map.of(...))` or similar structured logging approach.
-  6. 6.   - Ensure PII (like `name`) is handled according to FIN-GOV-GUARD-001. For this specific service, the `name` field is explicitly *not* considered PII, and therefore no masking or hashing is required for logging purposes.
-  7. 7.   - Include fields like `event_id`, `timestamp`, `action` (e.g., `GREETING_REQUEST`), `source_ip` (if available from request context), `correlation_id` (if available).
+  4. 4. Implement a public method `void logLocalizationRequest(String requestedLang, String negotiatedLang, String timeZone, String timeOfDay, String name, String actorId)`:
+  5. 5. - Log key-value pairs using `logger.info("Localization Request: {}", Map.of(...))` or similar structured logging approach.
+  6. 6. - Ensure PII (like `name`) is masked according to FIN-GOV-GUARD-001 before logging. Implement partial masking (e.g., show only first 2 characters, then asterisks) for the `name` field, as per FIN-GOV-GUARD-001 examples. Hashing is not considered an acceptable form of "masking" for logging PII in this context.
+  7. 7. - Include fields like `event_id`, `timestamp`, `action` (e.g., `GREETING_REQUEST`), `source_ip` (if available from request context), `correlation_id` (if available), and `actor_id` (default to 'system' if not provided).
 
 #### Step 3.2: Modify GreetingController for Enhanced Functionality
 
@@ -311,28 +312,11 @@ This subtask integrates the enhanced GreetingService into the GreetingController
 - **Detailed Instructions:**
   1. 1. Inject `GreetingService`, `LanguageNegotiationService`, and `StructuredLogger` into `GreetingController`.
   2. 2. Modify the `@GetMapping("/")` endpoint (`home()` method):
-  3. 3.   - Extract optional `@RequestHeader("Time-Zone") String timeZoneHeader` and `@RequestHeader("Accept-Language") String acceptLanguageHeader`.
-  4. 4.   - Create a `GreetingContext` with default values (name="World", salutation=null, language=null, timeZone=null).
-  5. 5.   - Call `greetingService.getLocalizedGreeting(context)`.
-  6. 6.   - Add `X-Supported-Languages` header to the response if language fallback occurred (e.g., `negotiatedLanguage` != `requestedLanguage`).
-  7. 7.   - Call `structuredLogger.logLocalizationRequest(...)`.
-  8. 8. Modify the `@GetMapping("/hello")` endpoint (`hello(@RequestParam String name)`) to accept additional parameters:
-  9. 9.   - Add `@RequestParam(value = "lang", required = false) String langParam`.
-  10. 10.   - Add `@RequestParam(value = "salutation", required = false) String salutationParam`.
-  11. 11.   - Extract `@RequestHeader("Time-Zone") String timeZoneHeader` and `@RequestHeader("Accept-Language") String acceptLanguageHeader`.
-  12. 12.   - Construct `GreetingContext` using all extracted parameters and headers, providing defaults where necessary (e.g., `name` defaults to "World").
-  13. 13.   - Call `greetingService.getLocalizedGreeting(context)`.
-  14. 14.   - Add `X-Supported-Languages` header to the response if language fallback occurred.
-  15. 15.   - Call `structuredLogger.logLocalizationRequest(...)`.
-  16. 16. Modify the `@GetMapping("/hello/{name}")` endpoint (`helloWithName(@PathVariable String name)`) to accept additional parameters:
-  17. 17.   - Add `@RequestParam(value = "lang", required = false) String langParam`.
-  18. 18.   - Add `@RequestParam(value = "salutation", required = false) String salutationParam`.
-  19. 19.   - Extract `@RequestHeader("Time-Zone") String timeZoneHeader` and `@RequestHeader("Accept-Language") String acceptLanguageHeader`.
-  20. 20.   - Construct `GreetingContext` using all extracted parameters and headers.
-  21. 21.   - Call `greetingService.getLocalizedGreeting(context)`.
-  22. 22.   - Add `X-Supported-Languages` header to the response if language fallback occurred.
-  23. 23.   - Call `structuredLogger.logLocalizationRequest(...)`.
-  24. 24. Ensure that for all endpoints, if no language parameters/headers are provided, the response defaults to English, maintaining backward compatibility (AC1).
+  3. 3. - Extract optional `@RequestHeader("Time-Zone") String timeZoneHeader` and `@RequestHeader("Accept-Language") String acceptLanguageHeader`.
+  4. 4. - Create a `GreetingContext` with default values (name="World", salutation=null, language=null, timeZone=null).
+  5. 5. - Call `greetingService.getLocalizedGreeting(context)`.
+  6. 6. - Add `X-Supported-Languages` header to the response if language fallback occurred (e.g., `negotiatedLanguage` != `requestedLanguage`).
+  7. 7. - Call `structuredLogger.logLocalizationRequest(...)`.
 
 #### Step 3.3: Update application.properties for Configuration and Logging
 
@@ -395,6 +379,9 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
 | `src/test/java/com/nordea/demo/helloworld/service/TimeZoneServiceTest.java` | **Create** | Unit Test | Create dedicated unit tests for TimeZoneService. |
 | `src/test/java/com/nordea/demo/helloworld/service/LanguageNegotiationServiceTest.java` | **Create** | Unit Test | Create dedicated unit tests for LanguageNegotiationService. |
 | `src/test/java/com/nordea/demo/helloworld/util/TimeOfDayResolverTest.java` | **Create** | Unit Test | Create dedicated unit tests for TimeOfDayResolver. |
+| `src/test/java/com/nordea/demo/helloworld/logging/StructuredLoggerTest.java` | **Create** | Unit Test | Create dedicated unit tests for StructuredLogger. |
+| `src/test/java/com/nordea/demo/helloworld/config/GreetingConfigTest.java` | **Create** | Unit Test | Create dedicated unit tests for GreetingConfig. |
+| `src/test/java/com/nordea/demo/helloworld/model/GreetingContextTest.java` | **Create** | Unit Test | Create dedicated unit tests for GreetingContext. |
 
 ### 3. Step-by-Step Technical Implementation Guide
 
@@ -405,13 +392,13 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
   1. 1. Update the `setUp()` method to ensure the `RestTestClient` is configured to use the fully integrated `GreetingController` (potentially using `@SpringBootTest` with mocked dependencies or a full application context).
   2. 2. Add new `@Test` methods to cover all scenarios described in AC1-AC5 of the User Story.
   3. 3. Specifically, add tests for:
-  4. 4.   - Backward compatibility of `/`, `/hello`, `/hello/{name}` without new parameters (AC1).
-  5. 5.   - Localized greetings with explicit `lang`, `salutation`, and `Time-Zone` headers (AC2).
-  6. 6.   - Automatic language negotiation via `Accept-Language` header and `Time-Zone` (AC3).
-  7. 7.   - Fallback to English for unsupported languages, including verification of the `X-Supported-Languages` response header (AC4).
-  8. 8.   - Path variable endpoint with `Accept-Language` and `Time-Zone` (AC5).
-  9. 9.   - Verify HTTP status codes (200 OK) and JSON payload structures for all scenarios.
-  10. 10.   - Verify the presence and content of the `X-Supported-Languages` header when applicable.
+  4. 4. - Backward compatibility of `/`, `/hello`, `/hello/{name}` without new parameters (AC1).
+  5. 5. - Localized greetings with explicit `lang`, `salutation`, and `Time-Zone` headers (AC2).
+  6. 6. - Automatic language negotiation via `Accept-Language` header and `Time-Zone` (AC3).
+  7. 7. - Fallback to English for unsupported languages, including verification of the `X-Supported-Languages` response header (AC4).
+  8. 8. - Path variable endpoint with `Accept-Language` and `Time-Zone` (AC5).
+  9. 9. - Verify HTTP status codes (200 OK) and JSON payload structures for all scenarios.
+  10. 10. - Verify the presence and content of the `X-Supported-Languages` header when applicable.
 
 #### Step 3.2: Create Unit Tests for GreetingService
 
@@ -420,10 +407,10 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
   1. 1. Create a new JUnit 5 test class `GreetingServiceTest` in `src/test/java/com/nordea/demo/helloworld/service`.
   2. 2. Use `@ExtendWith(MockitoExtension.class)` and `@Mock` annotations to mock `GreetingConfig`, `LanguageNegotiationService`, `TimeZoneService`, `TimeOfDayResolver`, and `MessageFormatter`.
   3. 3. Write unit tests for the `getLocalizedGreeting(GreetingContext context)` method, covering:
-  4. 4.   - Successful generation of localized, time-aware greetings with salutations for various valid inputs.
-  5. 5.   - Correct behavior when language negotiation results in a specific language.
-  6. 6.   - Correct fallback to English when an unsupported language is requested.
-  7. 7.   - Handling of null or empty salutations and names.
+  4. 4. - Successful generation of localized, time-aware greetings with salutations for various valid inputs.
+  5. 5. - Correct behavior when language negotiation results in a specific language.
+  6. 6. - Correct fallback to English when an unsupported language is requested.
+  7. 7. - Handling of null or empty salutations and names.
 
 #### Step 3.3: Create Unit Tests for TimeZoneService
 
@@ -431,9 +418,9 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
 - **Detailed Instructions:**
   1. 1. Create a new JUnit 5 test class `TimeZoneServiceTest` in `src/test/java/com/nordea/demo/helloworld/service`.
   2. 2. Write unit tests for the `resolveTimeZone(String timeZoneHeader)` method, covering:
-  3. 3.   - Valid IANA time zone identifiers (e.g., 'Europe/Paris', 'America/New_York').
-  4. 4.   - Invalid time zone identifiers (e.g., 'Invalid/Zone') to ensure fallback to UTC.
-  5. 5.   - Null or empty `timeZoneHeader` inputs to ensure fallback to UTC.
+  3. 3. - Valid IANA time zone identifiers (e.g., 'Europe/Paris', 'America/New_York').
+  4. 4. - Invalid time zone identifiers (e.g., 'Invalid/Zone') to ensure fallback to UTC.
+  5. 5. - Null or empty `timeZoneHeader` inputs to ensure fallback to UTC.
 
 #### Step 3.4: Create Unit Tests for LanguageNegotiationService
 
@@ -442,10 +429,10 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
   1. 1. Create a new JUnit 5 test class `LanguageNegotiationServiceTest` in `src/test/java/com/nordea/demo/helloworld/service`.
   2. 2. Use `@Mock` for `GreetingConfig` and set up mock behavior for `getSupportedLanguages()`.
   3. 3. Write unit tests for the `negotiateLanguage(String langQueryParam, String acceptLanguageHeader)` method, covering:
-  4. 4.   - `langQueryParam` taking precedence over `Accept-Language`.
-  5. 5.   - Various `Accept-Language` header values (e.g., `sv-SE,sv;q=0.9,en;q=0.8`, `fr`, `de-CH,de;q=0.9`).
-  6. 6.   - Scenarios where no supported language is found in headers/query, ensuring fallback to English.
-  7. 7.   - Edge cases like empty or malformed headers.
+  4. 4. - `langQueryParam` taking precedence over `Accept-Language`.
+  5. 5. - Various `Accept-Language` header values (e.g., `sv-SE,sv;q=0.9,en;q=0.8`, `fr`, `de-CH,de;q=0.9`).
+  6. 6. - Scenarios where no supported language is found in headers/query, ensuring fallback to English.
+  7. 7. - Edge cases like empty or malformed headers.
 
 #### Step 3.5: Create Unit Tests for TimeOfDayResolver
 
@@ -453,10 +440,35 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
 - **Detailed Instructions:**
   1. 1. Create a new JUnit 5 test class `TimeOfDayResolverTest` in `src/test/java/com/nordea/demo/helloworld/util`.
   2. 2. Write unit tests for the `getTimeOfDay(LocalTime localTime)` method, covering:
-  3. 3.   - Various `LocalTime` values that fall into the 'Morning' category (05:00-11:59).
-  4. 4.   - Various `LocalTime` values that fall into the 'Afternoon' category (12:00-17:59).
-  5. 5.   - Various `LocalTime` values that fall into the 'Evening' category (18:00-04:59).
-  6. 6.   - Boundary conditions (e.g., 04:59, 05:00, 11:59, 12:00, 17:59, 18:00).
+  3. 3. - Various `LocalTime` values that fall into the 'Morning' category (05:00-11:59).
+  4. 4. - Various `LocalTime` values that fall into the 'Afternoon' category (12:00-17:59).
+  5. 5. - Various `LocalTime` values that fall into the 'Evening' category (18:00-04:59).
+  6. 6. - Boundary conditions (e.g., 04:59, 05:00, 11:59, 12:00, 17:59, 18:00).
+
+#### Step 3.6: Create Unit Tests for StructuredLogger
+
+- **Target File:** `src/test/java/com/nordea/demo/helloworld/logging/StructuredLoggerTest.java`
+- **Detailed Instructions:**
+  1. 1. Create a new JUnit 5 test class `StructuredLoggerTest` in `src/test/java/com/nordea/demo/helloworld/logging`.
+  2. 2. Use `@Mock` for `Logger` if direct logger interaction is tested, or verify output if using a capturing appender.
+  3. 3. Write unit tests for `logLocalizationRequest` to verify:
+  4. 4. - Correct structured JSON format is produced.
+  5. 5. - All expected fields (`requestedLang`, `negotiatedLang`, `timeZone`, `timeOfDay`, `name` (masked/hashed), `actorId`, `event_id`, `timestamp`, `action`) are present.
+  6. 6. - PII masking/hashing for the `name` field is correctly applied.
+
+#### Step 3.7: Create Unit Tests for GreetingConfig
+
+- **Target File:** `src/test/java/com/nordea/demo/helloworld/config/GreetingConfigTest.java`
+- **Detailed Instructions:**
+  1. 1. Create a new JUnit 5 test class `GreetingConfigTest` in `src/test/java/com/nordea/demo/helloworld/config`.
+  2. 2. Write unit tests to verify that `GreetingConfig` correctly loads and provides access to configured languages, time-of-day greetings, and salutations from `application.properties`.
+
+#### Step 3.8: Create Unit Tests for GreetingContext
+
+- **Target File:** `src/test/java/com/nordea/demo/helloworld/model/GreetingContextTest.java`
+- **Detailed Instructions:**
+  1. 1. Create a new JUnit 5 test class `GreetingContextTest` in `src/test/java/com/nordea/demo/helloworld/model`.
+  2. 2. Write unit tests to verify the immutability and correct encapsulation of `name`, `salutation`, `language`, and `timeZone` within the `GreetingContext` record/class.
 
 ### 4. Blast Radius & Impact Analysis
 
@@ -496,6 +508,21 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
 - **Test Scenarios:**
   - [ ] Test correct categorization for Morning, Afternoon, and Evening time ranges.
 
+- **Target Test File:** `src/test/java/com/nordea/demo/helloworld/logging/StructuredLoggerTest.java`
+- **Test Scenarios:**
+  - [ ] Test `logLocalizationRequest` produces correct structured JSON output.
+  - [ ] Test `logLocalizationRequest` correctly masks/hashes the `name` field.
+  - [ ] Test all expected fields are present in the log output.
+
+- **Target Test File:** `src/test/java/com/nordea/demo/helloworld/config/GreetingConfigTest.java`
+- **Test Scenarios:**
+  - [ ] Test that `GreetingConfig` correctly loads supported languages and their greetings from properties.
+  - [ ] Test that `GreetingConfig` correctly loads supported salutations from properties.
+
+- **Target Test File:** `src/test/java/com/nordea/demo/helloworld/model/GreetingContextTest.java`
+- **Test Scenarios:**
+  - [ ] Test `GreetingContext` immutability and correct encapsulation of name, salutation, language, and timeZone.
+
 #### Integration & API Contract Tests
 
 - **Target Test File:** `src/test/java/com/nordea/demo/helloworld/controller/GreetingControllerTest.java`
@@ -515,16 +542,16 @@ This subtask focuses on ensuring comprehensive test coverage for all new feature
 
 ## Agent Assumptions Made
 
-- **Assumption 1:** Time partition logic evaluates local client time: Morning (05:00-11:59), Afternoon (12:00-17:59), Evening (18:00-04:59).
-- **Assumption 2:** Invalid or missing `Time-Zone` header values fall back safely to UTC without throwing client 4xx errors.
-- **Assumption 3:** Legacy responses without query parameters remain byte-compatible with the existing `Greeting` record structure.
-- **Assumption 4:** The `Accept-Language` header negotiation will prioritize the first supported language in the list, or the one with the highest 'q' value if multiple supported languages are present.
-- **Assumption 5:** New configuration for `GreetingConfig` (languages and salutations) will be added to `application.properties` or `application.yml`.
-- **Assumption 6:** Structured JSON logging will be implemented using Logback with a JSON layout, configured in `src/main/resources/logback-spring.xml`.
+- **Assumption 1:** Assumption 1: Time partition logic evaluates local client time: Morning (05:00-11:59), Afternoon (12:00-17:59), Evening (18:00-04:59).
+- **Assumption 2:** Assumption 2: Invalid or missing `Time-Zone` header values fall back safely to UTC without throwing client 4xx errors.
+- **Assumption 3:** Assumption 3: Legacy responses without query parameters remain byte-compatible with the existing `Greeting` record structure.
+- **Assumption 4:** Assumption 4: The `Accept-Language` header negotiation will prioritize the first supported language in the list, or the one with the highest 'q' value if multiple supported languages are present.
+- **Assumption 5:** Assumption 5: New configuration for `GreetingConfig` (languages and salutations) will be added to `application.properties` or `application.yml`.
+- **Assumption 6:** Assumption 6: Structured JSON logging will be implemented using Logback with a JSON layout, configured in `src/main/resources/logback-spring.xml`.
 
 ## Revision Changelog
 
-- v1.0: Initial PR creation for tech lead review.v1.1: Addressed audit findings CHK-001 (clarified PII status of 'name' in logging) and CHK-003 (standardized Logback configuration file to logback-spring.xml).
+- v1.0: Initial PR creation for tech lead review.v1.1: Addressed audit findings CHK-001 (clarified PII status of 'name' in logging) and CHK-003 (standardized Logback configuration file to logback-spring.xml).v1.2: Addressed reviewer comments: included `actor_id` in structured logging for SUBTASK-STORY-101-4 and corrected numbering style in detailed instructions across all subtasks.v1.3: Addressed audit findings CHK-001 (added unit test specification for StructuredLogger) and CHK-002 (modified PII handling for 'name' field in logs to enforce masking/hashing).v1.4: Remediated audit findings CHK-001 (added `GreetingConfigTest.java` and `GreetingContextTest.java` to SUBTASK-STORY-101-5 affected files, step-by-step guide, and testing strategy), CHK-002 (added `logback-spring.xml` to SUBTASK-STORY-101-4 affected files), and CHK-003 (clarified PII masking for 'name' in SUBTASK-STORY-101-4, Step 3.1 to explicitly use partial masking).
 
 ## Done When Checklist
 
