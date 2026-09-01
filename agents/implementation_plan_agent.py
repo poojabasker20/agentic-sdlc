@@ -226,11 +226,16 @@ class ImplementationPlanGeneratorAgent:
           attempt=attempt,
       )
 
-      # Deterministic check for PASSED vs REJECTED
-      audit_upper = audit_report_md.upper()
-      is_passed = ("OVERALL VERDICT:** **`PASSED`**" in audit_upper or 
-                   "OVERALL VERDICT:** `PASSED`" in audit_upper or 
-                   ("PASSED" in audit_upper and "REJECTED" not in audit_upper))
+      # Robust regex check targeting the 'Overall Verdict:' line
+      verdict_match = re.search(
+          r"\*\*Overall Verdict:\*\*\s*(.*)", audit_report_md, re.IGNORECASE
+      )
+      if verdict_match:
+        verdict_line = verdict_match.group(1).upper()
+        is_passed = "PASSED" in verdict_line and "REJECT" not in verdict_line
+      else:
+        audit_upper = audit_report_md.upper()
+        is_passed = "PASSED" in audit_upper and "REJECT" not in audit_upper
 
       if is_passed:
         logger.info(
@@ -382,7 +387,7 @@ class ImplementationPlanGeneratorAgent:
 
     total_files = sum(len(b.affected_files_delta) for b in payload.subtasks_blueprints)
 
-    verdict_badge = "**PASSED**" if is_passed else "⚠️ **REJECTED (NEEDS HUMAN REVIEW)**"
+    verdict_badge = "**PASSED**" if is_passed else "**REJECTED (NEEDS HUMAN REVIEW)**"
     status_text = "AWAITING_HUMAN_REVIEW" if is_passed else "REJECTED_AWAITING_HUMAN_REVIEW"
 
     pr_body = (
@@ -400,7 +405,7 @@ class ImplementationPlanGeneratorAgent:
 
     if not is_passed:
       pr_body += (
-          f"> ⚠️ **Autonomous refinement reached limit ({MAX_VERIFICATION_ATTEMPTS} attempts).**\n"
+          f"> **Autonomous refinement reached limit ({MAX_VERIFICATION_ATTEMPTS} attempts).**\n"
           f"> Please review the open findings in [`{audit_file_path}`]({audit_file_path}) and guide the team via review comments.\n\n"
       )
 
@@ -479,7 +484,7 @@ class ImplementationPlanGeneratorAgent:
         base_prompt=prompt,
     )
 
-    # 1. Commit updated implementation plan
+    # Commit updated implementation plan
     commit_msg = (
         f"docs({story_id}-plan): update implementation blueprint based on review"
     )
@@ -490,7 +495,7 @@ class ImplementationPlanGeneratorAgent:
         branch_name=target_branch,
     )
 
-    # 2. Commit updated audit-report.md
+    # Commit updated audit-report.md
     self.publisher.commit_file(
         file_path=audit_file_path,
         content=audit_report_md,
@@ -498,7 +503,7 @@ class ImplementationPlanGeneratorAgent:
         branch_name=target_branch,
     )
 
-    verdict_badge = "✅ **PASSED**" if is_passed else "⚠️ **REJECTED**"
+    verdict_badge = "**PASSED**" if is_passed else "**REJECTED**"
     comment_body = (
         f"**Implementation Blueprint & Audit Report Updated**\n\n"
         f"**Plan Verification Status:** {verdict_badge} (after {attempts} attempt(s))\n"
@@ -508,7 +513,7 @@ class ImplementationPlanGeneratorAgent:
         f"- Verification Audit: `{audit_file_path}`"
     )
     if not is_passed:
-      comment_body += f"\n\n> ⚠️ Autonomous refinement reached limit ({MAX_VERIFICATION_ATTEMPTS} attempts). Open findings remain for human reviewer."
+      comment_body += f"\n\n> Autonomous refinement reached limit ({MAX_VERIFICATION_ATTEMPTS} attempts). Open findings remain for human reviewer."
 
     pr.create_issue_comment(comment_body)
 

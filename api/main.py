@@ -25,7 +25,10 @@ from api.models import (
 from utils.code_parser import ASTMapPublisher
 from utils.doc_parser import PdfParserService
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger("agentic-sdlc-api")
 
 app = FastAPI(

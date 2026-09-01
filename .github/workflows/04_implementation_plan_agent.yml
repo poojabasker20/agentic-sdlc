@@ -22,8 +22,8 @@ on:
         default: "poojabasker20/springboot-hello-world"
 
   # Trigger ONLY once when the reviewer submits/publishes their PR review
-  pull_request_review:
-    types: [submitted]
+  # pull_request_review:
+  #   types: [submitted]
 
 # Prevent duplicate / overlapping runs on the same PR
 concurrency:
@@ -110,9 +110,11 @@ jobs:
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
           echo "Response ($http_code): $body"
+          echo ""
+          echo "=== FastAPI Service & Agent Execution Logs ==="
+          cat fastapi.log
 
           if [ "$http_code" -ne 200 ]; then
             echo "Implementation Plan Agent API request failed!"
-            cat fastapi.log
             exit 1
           fi
