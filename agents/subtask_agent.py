@@ -1,6 +1,7 @@
 """Stage 2 Subtask Generator Agent runner using google-genai and GitHub."""
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -10,6 +11,8 @@ from google.genai import types
 from schemas.subtask_schema import SubtaskPayload
 from tools.ast_traversal_tool import query_codebase_ast
 from utils.github_publisher import GitHubPublisherService
+
+logger = logging.getLogger(__name__)
 
 
 class SubtaskGeneratorAgent:
@@ -66,7 +69,11 @@ class SubtaskGeneratorAgent:
         self.genai_client = genai.Client(
             vertexai=True, project=project_id, location=location
         )
-        print(f"Initialized Vertex AI GenAI client (project={project_id}, location={location})")
+        logger.info(
+            "Initialized Vertex AI GenAI client (project=%s, location=%s)",
+            project_id,
+            location,
+        )
       except Exception as e:
         raise RuntimeError(
             f"Failed to initialize Vertex AI client with project='{project_id}' and location='{location}': {e}"
@@ -94,11 +101,13 @@ class SubtaskGeneratorAgent:
             config=config,
         )
         data = json.loads(response.text)
-        print(f"Successfully generated Subtask Plan using model `{model_name}`")
+        logger.info(
+            "Successfully generated Subtask Plan using model `%s`", model_name
+        )
         return SubtaskPayload(**data)
       except Exception as err:
         errors.append(f"{model_name}: {err}")
-        print(f"Model `{model_name}` failed: {err}")
+        logger.warning("Model `%s` failed: %s", model_name, err)
         continue
 
     raise RuntimeError(

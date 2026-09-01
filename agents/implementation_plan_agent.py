@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -12,8 +13,9 @@ from schemas.implementation_plan_schema import ImplementationPlanPayload
 from tools.ast_traversal_tool import query_codebase_ast
 from utils.github_publisher import GitHubPublisherService
 
-MAX_VERIFICATION_ATTEMPTS = 3
+logger = logging.getLogger(__name__)
 
+MAX_VERIFICATION_ATTEMPTS = 3
 
 class ImplementationPlanGeneratorAgent:
 
@@ -81,13 +83,17 @@ class ImplementationPlanGeneratorAgent:
         self.genai_client = genai.Client(
             vertexai=True, project=project_id, location=location
         )
-        print(f"Initialized Vertex AI GenAI client (project={project_id}, location={location})")
+        logger.info(
+            "Initialized Vertex AI GenAI client (project=%s, location=%s)",
+            project_id,
+            location,
+        )
       except Exception as e:
         raise RuntimeError(
             f"Failed to initialize Vertex AI client with project='{project_id}' and location='{location}': {e}"
         ) from e
     else:
-      raise ValueError("Neither Google Cloud Project ID nor GEMINI_API_KEY was provided.")
+      raise ValueError("Google Cloud Project ID not provided.")
 
   def _invoke_generator(self, prompt: str) -> ImplementationPlanPayload:
     candidate_models = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
@@ -109,11 +115,14 @@ class ImplementationPlanGeneratorAgent:
             config=config,
         )
         data = json.loads(response.text)
-        print(f"Successfully generated Implementation Plan using model `{model_name}`")
+        logger.info(
+            "Successfully generated Implementation Plan using model `%s`",
+            model_name,
+        )
         return ImplementationPlanPayload(**data)
       except Exception as err:
         errors.append(f"{model_name}: {err}")
-        print(f"Model `{model_name}` failed: {err}")
+        logger.warning("Model `%s` failed: %s", model_name, err)
         continue
 
     raise RuntimeError(
@@ -159,7 +168,7 @@ class ImplementationPlanGeneratorAgent:
       try:
         config = types.GenerateContentConfig(
             system_instruction=self.verifier_instruction,
-            temperature=0.1,  # Deterministic adversarial audit
+            temperature=0.1,
         )
         response = self.genai_client.models.generate_content(
             model=model_name,
@@ -167,13 +176,18 @@ class ImplementationPlanGeneratorAgent:
             config=config,
         )
         report_md = response.text.strip()
-        print(f"Successfully generated Plan Verifier Audit Report using `{model_name}` (Attempt {attempt})")
+        logger.info(
+            "Successfully generated Plan Verifier Audit Report using `%s` (Attempt %d)",
+            model_name,
+            attempt,
+        )
         return report_md
       except Exception as err:
         errors.append(f"{model_name}: {err}")
-        print(f"Verifier model `{model_name}` failed: {err}")
+        logger.warning("Verifier model `%s` failed: %s", model_name, err)
         continue
 
+    # Return fallback audit report if all model calls fail
     return (
         f"# Plan Verification Audit Report: {story_id}\n\n"
         f"**Parent Story ID:** `{story_id}`\n"
@@ -197,8 +211,12 @@ class ImplementationPlanGeneratorAgent:
 
     for attempt in range(1, MAX_VERIFICATION_ATTEMPTS + 1):
       attempts_used = attempt
-      print(f"\n--- Running SDLC Plan Verifier (Attempt {attempt}/{MAX_VERIFICATION_ATTEMPTS}) ---")
-      
+      logger.info(
+          "--- Running SDLC Plan Verifier (Attempt %d/%d) ---",
+          attempt,
+          MAX_VERIFICATION_ATTEMPTS,
+      )
+
       audit_report_md = self._invoke_verifier(
           story_id=story_id,
           plan_markdown=current_payload.rendered_markdown,
@@ -215,12 +233,23 @@ class ImplementationPlanGeneratorAgent:
                    ("PASSED" in audit_upper and "REJECTED" not in audit_upper))
 
       if is_passed:
-        print(f"SDLC Plan Verifier PASSED on attempt {attempt}/{MAX_VERIFICATION_ATTEMPTS}")
+        logger.info(
+            "SDLC Plan Verifier PASSED on attempt %d/%d",
+            attempt,
+            MAX_VERIFICATION_ATTEMPTS,
+        )
         break
 
-      print(f"SDLC Plan Verifier REJECTED on attempt {attempt}/{MAX_VERIFICATION_ATTEMPTS}")
+      logger.warning(
+          "SDLC Plan Verifier REJECTED on attempt %d/%d",
+          attempt,
+          MAX_VERIFICATION_ATTEMPTS,
+      )
       if attempt < MAX_VERIFICATION_ATTEMPTS:
-        print(f"Triggering automated plan refinement (Attempt {attempt + 1})...")
+        logger.info(
+            "Triggering automated plan refinement (Attempt %d)...",
+            attempt + 1,
+        )
         refine_prompt = f"""
         [AUTONOMOUS REMEDIATION - ATTEMPT {attempt + 1}/{MAX_VERIFICATION_ATTEMPTS}]
         The SDLC Plan Verifier rejected the previous blueprint with the following audit report:
@@ -241,7 +270,11 @@ class ImplementationPlanGeneratorAgent:
         current_payload = self._invoke_generator(refine_prompt)
 
     if not is_passed:
-      print(f"Maximum autonomous attempts ({MAX_VERIFICATION_ATTEMPTS}) reached. Halting loop for human review.")
+      logger.warning(
+          "Maximum autonomous attempts (%d) reached. Halting loop for human"
+          " review.",
+          MAX_VERIFICATION_ATTEMPTS,
+      )
 
     return current_payload, audit_report_md, is_passed, attempts_used
 
