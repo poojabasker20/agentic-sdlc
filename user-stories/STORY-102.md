@@ -7,12 +7,12 @@
 ## 1. Description
 
 **As a** Global API Consumer or Frontend Web/Mobile Client,  
-**I want to** request context-aware, culturally adaptive, and localized greetings via query parameter and header negotiation on existing greeting routes,  
+**It is required that** context-aware, culturally adaptive, and localized greetings can be requested via query parameter and header negotiation on existing /hello routes,  
 **So that** users receive an immediate, respectful, and culturally aligned welcome experience across supported international regions without breaking backward compatibility or degrading dashboard latency.
 
 ## 2. Business Context & Background
 
-The existing greeting service returns static, generic greetings ('Hello, World!' / 'Hello, {name}!'). To support international user engagement, the initial user touchpoint is to be enhanced into an adaptable greeting experience. The enhanced capability must dynamically align with user context, time of day, professional titles, and regional language preferences (supporting German, Finnish, and French alongside default English), while strictly preserving existing route contracts, conforming to enterprise data governance standards, and maintaining sub-10ms response latency.
+The existing greeting service returns static greetings ('Hello, World!' and 'Hello, {name}!'). To support international user engagement, the initial user touchpoint is enhanced into an adaptable greeting experience. The enhanced capability dynamically aligns with user context, time of day derived from request headers, professional titles, and regional language preferences (supporting German, Finnish, and French alongside default English), while strictly preserving existing route contracts, conforming to enterprise data governance standards under FIN-GOV-GUARD-001, and maintaining sub-10ms response latency.
 
 ## 3. Acceptance Criteria
 
@@ -23,16 +23,16 @@ The existing greeting service returns static, generic greetings ('Hello, World!'
 
 - **AC2: Localized Time-Aware Greeting via Header Negotiation and Query Parameters**
   - **Given** A client targets GET /hello with parameter name='Schmidt', optional query parameter title='Dr.', header Accept-Language='de-DE' (or 'de'), and header X-Timezone-Offset (or ZoneId)
-  - **When** The HTTP GET request is evaluated during client morning hours (05:00 - 11:59)
+  - **When** The HTTP GET request is evaluated during client morning hours (05:00 - 11:59) derived via the timezone header
   - **Then** An HTTP status 200 OK is returned, the response body returns a localized greeting (e.g., 'Guten Morgen, Dr. Schmidt!') with recipient 'Dr. Schmidt', and response latency remains under 10ms (p99 < 50ms).
 
 - **AC3: Supported Language Scope Verification (German, Finnish, French, English)**
   - **Given** A client requests GET /hello?name=Virtanen with Accept-Language header matching supported languages: German ('de'), Finnish ('fi'), or French ('fr')
   - **When** The request is processed by the greeting service
-  - **Then** An HTTP status 200 OK is returned, the salutation is rendered in the corresponding requested language with time-of-day awareness, and the combined recipient field reflects title and name without requiring client-side string concatenation.
+  - **Then** An HTTP status 200 OK is returned, the salutation is rendered in the corresponding requested language with time-of-day awareness derived via header, and the combined recipient field reflects title and name without requiring client-side string concatenation.
 
 - **AC4: Explicit Notification on Unsupported Language Request**
-  - **Given** A client passes an unsupported language tag (e.g., Accept-Language: xx-YY, es-ES, or sv-SE) that is outside the supported set (de, fi, fr, en)
+  - **Given** A client passes an unsupported language tag (e.g., Accept-Language: xx-YY, es-ES, or sv-SE) outside the supported set (de, fi, fr, en)
   - **When** An HTTP GET request is received at /hello
   - **Then** An HTTP status 200 OK is returned, the response payload explicitly notifies the consumer that the requested language is unsupported (e.g., 'Requested language is unsupported. Hello, {name}!'), and no unhandled exceptions or 5xx errors are thrown.
 
@@ -43,8 +43,8 @@ The existing greeting service returns static, generic greetings ('Hello, World!'
 
 ## 4. Technical Constraints & Out of Scope
 
-- **Constraints:** Package lock within com.nordea.demo.helloworld; Java 17/21 LTS and Spring Boot 3.x baseline; negotiation performed on existing /hello routes via query parameters (?name=&title=) and headers (Accept-Language, X-Timezone-Offset); supported initial language scope is strictly German, Finnish, French, and English; response latency must remain below 10ms (p99 < 50ms); zero plain-text PII logging in accordance with FIN-GOV-GUARD-001; unit and integration test verification with MockMvc/RestTestClient.
-- **Out of Scope:** Dedicated new path namespaces (/api/v1/greeting); languages other than German, Finnish, French, and English; persistent database storage; Redis caching; external cloud translation APIs; frontend UI templates; OAuth token issuance.
+- **Constraints:** Package lock within com.nordea.demo.helloworld; Java 17/21 LTS and Spring Boot 3.x baseline; negotiation performed on existing /hello routes via query parameters (?name=&title=) and headers (Accept-Language, X-Timezone-Offset); supported initial language scope is strictly German, Finnish, French, and English; time-of-day awareness must be derived strictly via request header (e.g., X-Timezone-Offset or ZoneId); response latency must remain below 10ms (p99 < 50ms); zero plain-text PII logging in accordance with FIN-GOV-GUARD-001; unit and integration test verification with MockMvc and RestTestClient.
+- **Out of Scope:** Dedicated new path namespaces (/api/v1/greeting); languages other than German, Finnish, French, and English; persistent database storage or Redis caching; external cloud translation API integrations; frontend UI templates or client-side rendering logic; OAuth token issuance or security filter modifications.
 
 ## 5. Design & UI/UX (If applicable)
 
@@ -72,4 +72,4 @@ The existing greeting service returns static, generic greetings ('Hello, World!'
 
 ## 9. Revision Changelog
 
-- v2.0: Revised based on human PR review feedback. Applied formal passive tone across sections. Clarified query/header negotiation on existing /hello routes. Derived time-of-day from request header. Fixed supported initial language set to German, Finnish, and French. Updated fallback requirement to explicitly state unsupported language message in response payload. Resolved all open questions into concrete criteria.
+- v2.1: Refined story in formal passive tone across all sections per reviewer comments. Maintained query/header negotiation on existing /hello routes. Derived time-of-day strictly via header. Clarified explicit message delivery for unsupported languages across German, Finnish, French, and English scope.
