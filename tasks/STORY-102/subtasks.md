@@ -42,9 +42,10 @@ The existing `GreetingController` will be enhanced to accept new headers and que
   - `src/main/java/com/nordea/demo/helloworld/GreetingService.java` (Modify)
   - `src/main/java/com/nordea/demo/helloworld/localization/LocaleResolver.java` (New)
   - `src/main/java/com/nordea/demo/helloworld/localization/TimezoneResolver.java` (New)
-- **Overview of Changes:** Refactor `GreetingService` to incorporate new methods for resolving `Locale` from `Accept-Language` headers and `ZoneId` from `X-Timezone-Offset` or `ZoneId` headers. Implement logic to determine the `TimeOfDay` based on the resolved timezone and construct localized greetings using the data structures from Subtask 1. This includes logic for handling unsupported languages by returning a default greeting with an explicit notification message, and applying optional professional titles to the recipient.
+- **Overview of Changes:** Refactor `GreetingService` to incorporate new methods for resolving `Locale` from `Accept-Language` headers and `ZoneId` from `X-Timezone-Offset` or `ZoneId` headers. Implement logic to determine the `TimeOfDay` based on the resolved timezone. Prioritize `X-Timezone-Offset` if both are present, and default to UTC if the provided timezone values are invalid or missing. Construct localized greetings using the data structures from Subtask 1. This includes logic for handling unsupported languages by returning a default greeting with an explicit notification message, and applying optional professional titles to the recipient.
 - **Verification & Testing Goals:**
   - [ ] Unit tests for `LocaleResolver` and `TimezoneResolver` cover various header inputs and default fallbacks.
+  - [ ] Unit tests for `TimezoneResolver` verify correct precedence (`X-Timezone-Offset` over `ZoneId`) and fallback to UTC for invalid or missing timezone headers.
   - [ ] Unit tests for `GreetingService` verify correct localized message generation for all supported languages, time of day, and title combinations.
   - [ ] Unit tests confirm the explicit notification message is returned for unsupported languages.
   - [ ] Unit tests ensure backward compatibility logic (default greetings) is preserved when no localization headers are provided.
@@ -60,7 +61,7 @@ The existing `GreetingController` will be enhanced to accept new headers and que
 - **Dependencies:** `SUBTASK-STORY-102-2`
 - **Affected / Target Files:**
   - `src/main/java/com/nordea/demo/helloworld/GreetingController.java` (Modify)
-- **Overview of Changes:** Update the existing `GreetingController` methods (`@GetMapping("/hello")` and `@GetMapping("/hello/{name}")`) to accept `Accept-Language` and `X-Timezone-Offset` (or `ZoneId`) headers, and an optional `title` query parameter. These new parameters will be extracted from the HTTP request and passed to the enhanced `GreetingService` for processing. The root endpoint (`@GetMapping("/")`) will remain unchanged to ensure strict backward compatibility.
+- **Overview of Changes:** Update the existing `GreetingController` methods (`@GetMapping("/hello")` and `@GetMapping("/hello/{name}")`) to accept `Accept-Language`, `X-Timezone-Offset`, and `ZoneId` headers, and an optional `title` query parameter. These new parameters will be extracted from the HTTP request and passed to the enhanced `GreetingService` for processing, with `X-Timezone-Offset` taking precedence for timezone resolution. The root endpoint (`@GetMapping("/")`) will remain unchanged to ensure strict backward compatibility.
 - **Verification & Testing Goals:**
   - [ ] Integration tests using `RestTestClient` verify that new headers and query parameters are correctly parsed and passed to the service.
   - [ ] Integration tests confirm backward compatibility for requests without localization headers/params, ensuring default responses are returned.
@@ -113,7 +114,7 @@ SUBTASK-STORY-102-2 (Service Logic) ──► SUBTASK-STORY-102-4 (Telemetry) �
 
 ## 4. Open Questions & Clarifications Needed
 
-- [ ] **Q1:** Q1: If both 'X-Timezone-Offset' and 'ZoneId' headers are present, which one should take precedence for determining the time zone?
+- [ ] **Q1:** None at this time.
 
 ## 5. Agent Assumptions Made
 
@@ -121,10 +122,12 @@ SUBTASK-STORY-102-2 (Service Logic) ──► SUBTASK-STORY-102-4 (Telemetry) �
 - **Assumption 2:** Time-of-day segments for greetings (e.g., morning, afternoon, evening, night) will be defined based on common conventions (e.g., morning 05:00-11:59, afternoon 12:00-16:59, evening 17:00-21:59, night 22:00-04:59).
 - **Assumption 3:** The `title` query parameter is optional and, if provided, will be prepended to the `name` in the `recipient` field.
 - **Assumption 4:** Micrometer is the chosen metrics library for implementing the telemetry requirements.
+- **Assumption 5:** When both `X-Timezone-Offset` and `ZoneId` headers are provided, `X-Timezone-Offset` will take precedence. If both are invalid or missing, the system will default to UTC for time zone resolution.
 
 ## 6. Revision Changelog
 
 - v1.0: Initial PR creation for tech lead review.
+v1.1: Incorporated reviewer feedback regarding `X-Timezone-Offset` precedence and UTC fallback for timezone resolution.
 
 ## 7. Done When Checklist
 
