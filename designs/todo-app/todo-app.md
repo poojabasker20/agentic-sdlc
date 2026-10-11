@@ -94,3 +94,141 @@ There is a clear need for an anonymous-first, cloud-synchronized task management
         when: User installs the application on a second mobile device and signs in with the linked provider.
         then: All tasks, subtasks, priorities, and deadlines are retrieved from Firestore and displayed identically across both devices.
 ```
+
+## Technical Plan (Architecture)
+
+### System Architecture Overview
+
+The system follows a cloud-native, microservices-ready architecture using Google Cloud standard building blocks. The Flutter client interacts with a Go (Echo) REST API hosted on Google Cloud Run over HTTPS. Google Cloud Firestore provides scalable NoSQL document persistence. Push reminder execution is driven asynchronously via Google Cloud Tasks scheduled queues, which invoke internal dispatch webhooks on the Cloud Run service to deliver push messages through Firebase Cloud Messaging (FCM) and the Apple Push Notification service (APNs).
+
+```
++-----------------------------------------------------------------------------------+
+|                            Mobile Client (Flutter)                                |
+|  - iOS (APNs) & Android (FCM) Targets                                             |
+|  - Firebase Auth SDK: Anonymous Session & Federated Account Linking               |
+|  - Flutter Secure Storage: Key material & Token persistence                       |
+|  - Push Notifications: firebase_messaging background/foreground handlers          |
++-----------------------------------------+-----------------------------------------+
+                                          | HTTPS / REST (Firebase JWT Bearer)
+                                          v
++-----------------------------------------------------------------------------------+
+|                        Go Echo Service (Google Cloud Run)                         |
+|  +-----------------------------------------------------------------------------+  |
+|  | Auth Middleware: Firebase ID Token Verification & User Context Extraction   |  |
+|  +-----------------------------------------------------------------------------+  |
+|  | REST Routing Layer:                                                         |  |
+|  |   - /api/v1/tasks             (CRUD, subtask toggling, archive/delete)      |  |
+|  |   - /api/v1/devices/token     (Register/Refresh FCM device push tokens)     |  |
+|  |   - /internal/v1/dispatch     (Secured by Google OIDC service-to-service)   |  |
+|  +-----------------------------------------------------------------------------+  |
+|  | Business Services: TaskManager, NotificationScheduler, PushSender           |  |
+|  +-----------------------------------------------------------------------------+  |
++--------------------+---------------------------------------+----------------------+
+                     |                                       |
+                     v                                       v
+    +---------------------------------+    +----------------------------------+
+    |     Google Cloud Firestore      |    |        Google Cloud Tasks        |
+    |  - users/{userId}/tasks/{taskId}|    |  - Scheduled reminder queue      |
+    |  - users/{userId}/devices/{tok} |    |  - Target: /internal/v1/dispatch |
+    +---------------------------------+    +-----------------+----------------+
+                                                             | At reminder execution time
+                                                             v
+                                           +----------------------------------+
+                                           | Push Dispatch Webhook Handler    |
+                                           | (Cloud Run -> FCM / APNs Client) |
+                                           +-----------------+----------------+
+                                                             | Push Payload
+                                                             v
+                                                   [ User Mobile Device ]
+```
+
+### Component Details & Interactions
+
+#### 1. Client Layer (Flutter Mobile App)
+* **Auth Management**: Initializes anonymous authentication via `FirebaseAuth.instance.signInAnonymously()` on first launch. If account linking is triggered later, it invokes `linkWithCredential()` (Apple or Google auth), preserving the original Firebase UID.
+* **Device Token Registration**: Obtains the FCM registration token via `FirebaseMessaging.instance.getToken()` and registers it with the backend at `POST /api/v1/devices/token`.
+* **State Management & Networking**: Encapsulates network communication via an HTTP client that automatically attaches the user's current Firebase ID token in the `Authorization: Bearer <token>` header.
+
+#### 2. Backend Compute (Go / Echo on Google Cloud Run)
+* **Runtime**: Go binary running in a lightweight container on Cloud Run with scale-to-zero enabled.
+* **Authentication Middleware**: Validates incoming Firebase JWTs using the Google Auth / Firebase Admin SDK, populating the Echo request context with the verified `userId`.
+* **Internal Webhook Security**: The `/internal/v1/dispatch` endpoint is restricted to calls originating from Google Cloud Tasks by verifying Google-signed OIDC ID tokens matching the configured service account.
+
+#### 3. Push Notification Scheduling & Delivery Flow
+* **Schedule Calculation**:
+  When a task is created or updated with a deadline $T_{\text{deadline}}$ and a relative reminder offset $\Delta t_{\text{offset}}$ (in seconds before deadline), the backend computes:
+  $$T_{\text{reminder}} = T_{\text{deadline}} - \Delta t_{\text{offset}}$$
+  If $T_{\text{reminder}} > T_{\text{now}}$, a Google Cloud Task is scheduled with `schedule_time = Timestamp(T_reminder)`.
+* **Version-Based Invalidation Strategy**:
+  Rather than calling the Cloud Tasks API to locate and delete previously scheduled tasks when deadlines are edited or tasks are archived/completed, the backend uses a version token (`version` integer incremented on task modification).
+  The Cloud Task payload contains `{"userId": "...", "taskId": "...", "version": N}`.
+  When the dispatch webhook fires:
+  1. The backend reads `users/{userId}/tasks/{taskId}`.
+  2. If the task does not exist, is marked completed (`isCompleted == true`), is archived (`status == "ARCHIVED"`), or if `task.version != payload.version`, the dispatch request is safely discarded (no-op 200 OK).
+  3. If valid, the backend retrieves all active device tokens for `userId` from `users/{userId}/devices` and dispatches the notification via the Firebase Admin SDK.
+
+### Data Model & Firestore Schema
+
+#### Tasks Collection: `users/{userId}/tasks/{taskId}`
+Each parent task document encapsulates its metadata, deadline, reminder configuration, and embedded subtask array.
+
+```json
+{
+  "id": "c1f7a90e-b7f3-4f93-87a2-f8231bbd01a4",
+  "userId": "firebase_uid_12345",
+  "title": "Prepare Quarterly Review Presentation",
+  "description": "Consolidate Q1 operational metrics and financial summaries",
+  "priority": "HIGH",
+  "status": "ACTIVE",
+  "isCompleted": false,
+  "deadline": "2025-06-01T15:00:00Z",
+  "reminderOffsetSeconds": 3600,
+  "reminderExecutionTime": "2025-06-01T14:00:00Z",
+  "version": 1,
+  "subtasks": [
+    {
+      "id": "s-01",
+      "title": "Export revenue report from billing system",
+      "isCompleted": true,
+      "order": 1
+    },
+    {
+      "id": "s-02",
+      "title": "Draft executive summary slide",
+      "isCompleted": false,
+      "order": 2
+    }
+  ],
+  "createdAt": "2025-05-18T10:00:00Z",
+  "updatedAt": "2025-05-18T10:00:00Z"
+}
+```
+
+* **Data Sizing & Limits**: The embedded `subtasks` array is capped at 50 items per task. At ~100 bytes per subtask, the array consumes under 5 KB, well below Firestore's 1 MB document threshold, avoiding multi-document read overhead.
+
+#### Device Tokens Collection: `users/{userId}/devices/{deviceToken}`
+
+```json
+{
+  "token": "fcm_token_string_here",
+  "platform": "ios",
+  "updatedAt": "2025-05-18T10:00:00Z"
+}
+```
+
+### API Specification
+
+| Endpoint | Method | Auth | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/v1/tasks` | `POST` | User Bearer | Create a new task with optional subtasks and reminder configuration. |
+| `/api/v1/tasks` | `GET` | User Bearer | List tasks for the authenticated user; query params: `status` (`ACTIVE`, `ARCHIVED`), `limit`, `pageToken`. |
+| `/api/v1/tasks/:id` | `GET` | User Bearer | Retrieve a single task by ID. |
+| `/api/v1/tasks/:id` | `PUT` | User Bearer | Update task details, subtasks list, and reschedule reminder if modified. |
+| `/api/v1/tasks/:id/complete` | `PATCH` | User Bearer | Toggle completion state of task. Increments task `version`. |
+| `/api/v1/tasks/:id/archive` | `PATCH` | User Bearer | Transition task status to `ARCHIVED`. Increments task `version`. |
+| `/api/v1/tasks/:id/unarchive` | `PATCH` | User Bearer | Restore task status from `ARCHIVED` to `ACTIVE`. |
+| `/api/v1/tasks/:id` | `DELETE` | User Bearer | Permanently remove task document from Firestore. |
+| `/api/v1/devices/token` | `POST` | User Bearer | Register or refresh client FCM device token. |
+| `/internal/v1/dispatch` | `POST` | Cloud Tasks OIDC | Internal dispatch webhook called by Cloud Tasks to validate task version and trigger FCM push notification. |
+
+```
