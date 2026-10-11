@@ -230,3 +230,50 @@ Each parent task document encapsulates its metadata, deadline, reminder configur
 | `/api/v1/tasks/:id` | `DELETE` | User Bearer | Permanently remove task document from Firestore. |
 | `/api/v1/devices/token` | `POST` | User Bearer | Register or refresh client FCM device token. |
 | `/internal/v1/dispatch` | `POST` | Cloud Tasks OIDC | Internal dispatch webhook called by Cloud Tasks to validate task version and trigger FCM push notification. |
+
+## Alternatives Considered
+
+### Alternative A: Subtasks as Separate Subcollections (`users/{userId}/tasks/{taskId}/subtasks/{subtaskId}`)
+
+* **Pros**:
+  * Unbounded subtask capacity per task without approaching Firestore document size limitations.
+  * Allows fine-grained Firestore security rules and individual subtask real-time listeners.
+* **Cons**:
+  * Requires N+1 document reads or collection queries to render a single task detail view, increasing read latency and billing costs.
+  * Creating a task with subtasks requires Firestore batch writes or multi-document transactions.
+* **Reason for Rejection**:
+  Personal todo subtasks are naturally bounded checklists (capped at 10 items for MVP). Embedding subtasks directly into the parent task document guarantees single-roundtrip reads and atomic mutations while keeping resource usage well within limits.
+
+### Alternative B: Cron Polling via Cloud Scheduler vs. Point-in-Time Cloud Tasks
+
+* **Pros**:
+  * Avoids managing individual task queue records; a single recurring job queries upcoming deadlines periodically.
+* **Cons**:
+  * High query overhead and cost: the backend would need to scan all pending tasks across all users every 1 to 5 minutes.
+  * Notification drift and jitter: tasks scheduled between cron polling intervals could be notified minutes late.
+  * Idle resource waste when few or no reminders are due.
+* **Reason for Rejection**:
+  Google Cloud Tasks provides native millisecond-precision scheduled delivery, executing only when a reminder is actually due. This completely eliminates empty polling scans and ensures timely notification arrival.
+
+### Alternative C: Pure Client-Side Local Notifications
+
+* **Pros**:
+  * Works offline without requiring backend or cloud messaging infrastructure.
+  * Zero cloud messaging egress costs.
+* **Cons**:
+  * OS limitations: Android Doze and iOS background execution restrictions frequently delay or suppress local alarm notifications.
+  * Multi-device synchronization failure: Reminders created on one device would not trigger on another linked device.
+  * Vulnerable to local app cache clearing or OS-level process management.
+* **Reason for Rejection**:
+  Server-coordinated push notifications via FCM and APNs ensure reliable multi-device delivery and consistent notification reception regardless of whether the mobile client process is active in memory.
+
+## Non-Functional Requirements related to a critical risk
+
+### Security & Privacy
+* **Tenant Isolation**: All task document operations enforce strict user isolation: Firestore queries and mutations require the authenticated UID extracted from the validated Firebase ID token to match `userId` in the document path (`users/{userId}/tasks/{taskId}`).
+* **Service-to-Service Dispatch Authentication**: The internal reminder webhook (`/internal/v1/dispatch`) accepts requests only from Google Cloud Tasks by verifying the Google-issued OIDC identity token and matching the expected service account email.
+* **Key & Token Storage**: Mobile devices persist Firebase Auth refresh tokens and FCM tokens securely in iOS Keychain and Android Keystore via `flutter_secure_storage`.
+
+### Performance & Latency
+* **Scale-to-Zero and Latency**: The Go backend compiled binary has minimal memory footprint (<30 MB) and cold starts under 1 second on Cloud Run, ensuring sub-200ms API response times for standard CRUD operations.
+* **Firestore Read Optimization**: By storing subtasks within the parent task document, fetching tasks and their checklists always requires a single Firestore read per parent task.
