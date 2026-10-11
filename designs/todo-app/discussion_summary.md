@@ -1,139 +1,45 @@
-# Discussion Summary: Cloud-Synced Mobile Todo Application
+# Discussion Summary: Todo Application
 
-## 1. Objective & Problem Statement
-Build a lightweight, cross-platform mobile Todo application for iOS and Android that minimizes onboarding friction by supporting anonymous guest sessions while providing real-time cloud synchronization, hierarchical subtask breakdown, customizable deadline reminders, priority labeling, and task lifecycle management (active, archive, delete).
+## 1. Overview & Objective
+Build a cloud-backed, multi-user Todo application from scratch that ensures users never miss deadlines by combining clear priority ranking with proactive dual-channel notifications (in-app feed and email).
 
 ## 2. Goals & Non-Goals
-
 ### Goals
-- **Instant Onboarding**: Allow users to immediately create and manage tasks via anonymous authentication without an upfront registration wall.
-- **Task Management & Subtasks**:
-  - Support task heading (title), text description, deadline date/time, and priority levels (Low, Medium, High).
-  - Enable task decomposition: a parent task can be broken down into multiple smaller subtasks (checklist items) with independent completion statuses (capped at 10 items for MVP).
-- **Customizable Reminder Notifications**:
-  - Allow users to choose when they want to be reminded relative to the deadline (e.g., at deadline time, 15 minutes before, 1 hour before, 1 day before, or custom offset).
-  - Reliably deliver push reminders to iOS and Android devices via Google Cloud Tasks and Firebase Cloud Messaging (FCM) / Apple Push Notification service (APNs).
-- **Lifecycle Management**: Enable users to mark tasks and subtasks complete, archive completed/stale tasks, or delete them.
-- **Account Linking**: Allow users to link their anonymous profile with an identity provider (Google, Apple, or Email) to secure tasks and sync across multiple devices.
-- **Compute & Architecture Standards**:
-  - Mobile client built using Flutter.
-  - Backend implemented in Go (Echo framework).
-  - Backend compute deployed exclusively on Google Cloud Run, configured with `min-instances: 1` to eliminate cold starts and ensure immediate response times for interactive requests and webhook triggers.
-  - Database persistence via Google Cloud Firestore.
+- Full task lifecycle management (create, read, update, delete, complete) with description, priority (`Low`, `Medium`, `High`), and UTC deadlines.
+- Timely scheduled alerts: 24 hours before deadline, 1 hour before deadline, and immediate overdue notification.
+- In-app notification center for pending/delivered alerts and transactional email dispatch.
+- Resilient notification worker utilizing database-level concurrency locking and deduplication.
+- Responsive multi-platform client interface across mobile and web.
 
-### Non-Goals
-- **Complex Offline Sync Engine**: Offline conflict resolution, CRDTs (Conflict-free Replicated Data Types), or distributed bidirectional offline syncing are excluded for MVP. The app will operate in an online-only model for mutations, with local read-only caching planned for phase 2.
-- **Collaborative / Shared Lists**: Multi-user shared boards or assigned tasks are deferred to phase 2.
-- **Complex Recurring Task Rules**: Advanced recurring task recurrence engines (e.g., RRULE support) are out of scope for MVP.
+### Non-Goals (YAGNI / Phase 1)
+- Collaborative multi-user shared task lists or team workspaces.
+- Recurring tasks or complex calendar sync integrations (e.g., Google Calendar / Outlook).
+- Webhook integrations or custom user-defined notification channels (SMS, Slack).
 
 ## 3. Critical User Journeys (CUJs)
+1. **CUJ-1: Task Creation with Priority and Deadline**: User creates a task with a description, sets priority to `High`, and selects a deadline. The system stores the task in UTC and schedules the alert windows.
+2. **CUJ-2: Proactive Notification Delivery**: As the deadline approaches (T-24h, T-1h), the periodic background worker identifies the task, creates an in-app notification record, and sends an email reminder to the user.
+3. **CUJ-3: Task Completion & Invalidation**: User completes the task ahead of the deadline. The system transitions the task status to `Completed` and immediately suppresses any pending notifications.
+4. **CUJ-4: Overdue Alert Handling**: A task passes its deadline while still `Pending`. The system marks the task as overdue and triggers an immediate overdue alert to the user.
 
-1. **CUJ 1: First-Time User Task Creation with Subtasks & Custom Reminders**
-   - User opens the app for the first time; an anonymous session is initialized via Firebase Auth and saved in the platform Keychain (iOS) or Keystore (Android).
-   - User enters a heading, description, selects "High" priority, sets a deadline for tomorrow at 10:00 AM, and chooses a reminder offset of "1 hour before" (9:00 AM).
-   - User breaks down the task into smaller subtasks (e.g., "Draft outline", "Review findings").
-   - Backend persists the parent task and subtasks to Firestore and enqueues a Google Cloud Task scheduled for tomorrow at 9:00 AM.
+## 4. Architecture Outline
+- **Client**: Flutter cross-platform client (Web, iOS, Android) handling local timezone presentation and task interaction.
+- **Backend Service**: Go (Echo framework) REST API hosted on Google Cloud Run.
+- **Data Persistence**: Cloud SQL (PostgreSQL) storing `users`, `tasks`, and `notifications`.
+- **Notification Engine**: Cloud Scheduler triggering a Cloud Run cron endpoint every 5 minutes:
+  - Queries upcoming and overdue alerts with `SELECT ... FOR UPDATE SKIP LOCKED`.
+  - Dedupes via unique index `(task_id, alert_type)` in the `notifications` table to guarantee idempotency.
+  - Sends email via transactional provider (SendGrid/Mailgun) with exponential backoff retries.
 
-2. **CUJ 2: Deadline Notification Delivery**
-   - At the scheduled reminder time (e.g., 9:00 AM), Google Cloud Tasks invokes the backend dispatch endpoint.
-   - The backend validates the task status and version (ensures it was not completed, deleted, or rescheduled).
-   - Backend sends a push notification through Firebase Cloud Messaging (FCM) and Apple Push Notification service (APNs) to the user's registered device tokens.
-   - User taps the push notification and opens directly to the specific task and subtasks.
-
-3. **CUJ 3: Subtask Progress & Task Archiving**
-   - User checks off individual subtasks as they make progress.
-   - Once all subtasks are finished or the task is completed, user archives the task.
-   - Task transitions to the Archived tab; pending reminder Cloud Tasks are marked obsolete.
-   - User can unarchive or permanently delete items from the archive.
-
-4. **CUJ 4: Account Linking for Cross-Device Sync**
-   - User navigates to Settings or responds to an in-app prompt to "Link Account".
-   - User authenticates via Apple Sign-In or Google Sign-In.
-   - Anonymous credentials are linked to the permanent UID in Firebase Auth; existing Firestore tasks remain attached to the user UID.
-   - User signs in on another iOS or Android device and instantly sees all tasks and subtasks.
-
-## 4. Current Limits & New Approach
-- **Current Limits**: Most existing mobile task apps enforce mandatory registration walls before first use, causing drop-offs, or they remain purely offline without cross-device notifications.
-- **New Approach**: Anonymous-first cloud architecture enabling instantaneous task and subtask entry, coupled with scheduled Google Cloud Tasks for precise, serverless push notification delivery.
-
-## 5. High-Level Architecture
-
-```
-+-------------------------------------------------------------+
-|                 Mobile Client (Flutter)                     |
-|  - iOS & Android Targets                                    |
-|  - Firebase Auth SDK (Anonymous + Federated Linking)        |
-|  - Firebase Cloud Messaging (FCM) / APNs Client SDK         |
-|  - Secure Storage (iOS Keychain / Android Keystore)         |
-+------------------------------+------------------------------+
-                               | HTTPS / REST
-                               v
-+-------------------------------------------------------------+
-|                 Backend API (Go / Echo)                     |
-|         Google Cloud Run (min-instances: 1)                 |
-|  - Auth Middleware (Verify Firebase ID Tokens)              |
-|  - Task & Subtask CRUD Endpoints                            |
-|  - Notification Scheduler (Google Cloud Tasks Client)       |
-|  - Dispatch Webhook Handler (Internal task executor)        |
-+--------------+-------------------------------+--------------+
-               |                               |
-               v                               v
-    +--------------------+           +-------------------+
-    |    Firestore DB    |           | Google Cloud Tasks|
-    |  - Users Collection|           |  - Scheduled Task |
-    |  - Tasks & Subtasks|           |    Queue          |
-    +--------------------+           +---------+---------+
-                                               | Triggers at Reminder Time
-                                               v
-                                     +-------------------+
-                                     |  Dispatch Handler |
-                                     |  (FCM / APNs)     |
-                                     +-------------------+
-```
-
-### Architectural Decisions
-
-1. **Compute Platform**:
-   - **Google Cloud Run**: Containerized Go service deployed with `min-instances: 1` to eliminate cold-start latency and ensure instantaneous response times for user API requests and time-critical push reminder webhooks.
-
-2. **Push Notification Services**:
-   - **Firebase Cloud Messaging (FCM)**: Unified push notification delivery platform used to route push notifications to Android devices and forward to iOS devices.
-   - **Apple Push Notification service (APNs)**: Apple's native transport used by FCM to deliver notifications to iOS devices.
-
-3. **Data Model**:
-   - Tasks stored under `users/{userId}/tasks/{taskId}`.
-   - Subtasks embedded as an ordered array of subtask objects (`id`, `title`, `isCompleted`, `order`) within the parent task document to ensure single-document atomic updates and eliminate multi-document read latency (capped at 10 items for MVP).
-
-4. **Customizable Notification Scheduling**:
-   - Task stores `deadline` and `reminderOffset` (e.g., -3600 seconds for 1 hour before).
-   - Execution time = `deadline - reminderOffset`.
-   - Google Cloud Tasks queue enqueues the job at this target execution timestamp.
-   - Dispatch handler validates task version/timestamp before dispatching through FCM/APNs.
-
-## 6. Risks & Mitigations
-
-| Risk | Severity | Mitigation |
-| :--- | :--- | :--- |
-| **Notification Failure on Offline Devices** | Medium | Because notifications are cloud-driven push notifications via FCM/APNs, a device without network connection at the reminder time cannot receive the notification until reconnected. Accepted trade-off of the online-only MVP model. |
-| **Anonymous Account Data Loss** | Medium | If an anonymous user deletes the app before linking, data cannot be recovered. Mitigated by persisting tokens in the platform Keychain/Keystore and displaying non-intrusive linking banners. |
-| **Task Rescheduling Churn** | Low | Modifying deadlines or reminder offsets creates orphaned Cloud Tasks. Mitigated by validating the task version and reminder timestamp at execution time rather than issuing expensive Cloud Task cancellation calls. |
-| **Large Subtask Lists** | Low | Embedding subtasks within the parent task document is bounded (capped at 10 subtasks per task for MVP) to remain well below Firestore's 1 MB document limit. |
-
-## 7. Cost & Timeline
-- **Infrastructure Cost**: Fully fits within Google Cloud and Firebase free/low-cost tiers (Cloud Run with 1 min-instance ~$10–15/mo or free compute credits, Firestore 50k reads/day, Google Cloud Tasks 1M ops/month, free FCM/APNs delivery).
-- **Timeline**: 4–6 weeks for MVP:
-  - Week 1–2: Backend API (Go, Echo, Firestore, Google Cloud Tasks, subtask models) & Auth middleware.
-  - Week 3–4: Flutter UI (hierarchical task/subtask management, reminder offset picker, FCM integration).
-  - Week 5: Push dispatch validation, end-to-end integration tests, account linking.
-  - Week 6: Polishing, QA, and deployment to Google Cloud Run.
-
-## 8. Verification & Success Criteria
-- **Unit & Integration Tests**: Backend unit test coverage >80%; API integration tests validating CRUD operations for tasks and nested subtasks.
-- **Cloud Task Dispatch Verification**: Automated tests validating that task creation/updates with custom reminder offsets enqueue Google Cloud Tasks with the exact expected target timestamps.
-- **Push Delivery Testing**: End-to-end device testing verifying FCM/APNs notification receipt at the chosen reminder offset on both iOS and Android.
-- **Account Linking Flow**: Verification that anonymous sessions migrate cleanly when linked to Google and Apple accounts without losing tasks or subtasks.
-
-## 9. Future Roadmap & Iterations
-- **Phase 2 - Offline Read-Only Cache & Shared Lists**:
-  - Integrate a local SQLite cache (via `sqflite` or `drift` in Flutter) so users can view previously fetched tasks and subtasks without network connectivity.
-  - Introduce shared lists and task collaboration between linked user accounts.
+## 5. Grilling Analysis (The 8 Pillars)
+* **Objective**: A dependable, distraction-free task tracker that ensures high-priority deadlines are met via automated alerting.
+* **Limits Today**: Ad-hoc to-do apps either lack proactive lead-time alerts or create alert fatigue by spamming notifications without priority differentiation.
+* **New Approach**: Standardized priority tiers paired with predictable lead-time triggers (24h/1h/overdue) and idempotent dual-channel dispatch.
+* **Impact**: Eliminates missed deadlines and gives users peace of mind without requiring active app monitoring.
+* **Risks & Mitigations**:
+  * *Concurrency / Double-Sends*: Mitigated by DB-level row locking (`SKIP LOCKED`) and unique compound keys on notifications.
+  * *Email Outages*: Third-party email failures are isolated and do not block task CRUD or in-app notification creation.
+  * *Timezone Discrepancies*: Enforce strict UTC storage in the database with client-side localization.
+* **Cost**: Minimal / GCP free tier eligible (Cloud Run scale-to-zero, low-tier Cloud SQL instance, standard email free tier).
+* **Timeline**: ~2–3 weeks for full MVP (Go backend API, migrations, scheduler job, and Flutter client).
+* **Verification**: Time-mocked integration tests verifying notification triggering, idempotency, and cancellation, alongside CI unit tests.
