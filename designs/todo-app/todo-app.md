@@ -204,7 +204,7 @@ Each parent task document encapsulates its metadata, deadline, reminder configur
 }
 ```
 
-* **Data Sizing & Limits**: The embedded `subtasks` array is capped at 50 items per task. At ~100 bytes per subtask, the array consumes under 5 KB, well below Firestore's 1 MB document threshold, avoiding multi-document read overhead.
+* **Data Sizing & Limits**: The embedded `subtasks` array is capped at 10 items per task for the MVP. At ~100 bytes per subtask, the array consumes under 1.5 KB, well below Firestore's 1 MB document threshold, avoiding multi-document read overhead while keeping the UI focused.
 
 #### Device Tokens Collection: `users/{userId}/devices/{deviceToken}`
 
@@ -230,5 +230,3 @@ Each parent task document encapsulates its metadata, deadline, reminder configur
 | `/api/v1/tasks/:id` | `DELETE` | User Bearer | Permanently remove task document from Firestore. |
 | `/api/v1/devices/token` | `POST` | User Bearer | Register or refresh client FCM device token. |
 | `/internal/v1/dispatch` | `POST` | Cloud Tasks OIDC | Internal dispatch webhook called by Cloud Tasks to validate task version and trigger FCM push notification. |
-
-```
