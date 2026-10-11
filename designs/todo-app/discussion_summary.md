@@ -18,7 +18,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 - **Compute & Architecture Standards**:
   - Mobile client built using Flutter.
   - Backend implemented in Go (Echo framework).
-  - Primary compute on Google Cloud Run (containerized, scale-to-zero), with Cloud Functions evaluated as an alternative serverless option.
+  - Backend compute deployed exclusively on Google Cloud Run (containerized, automatic scale-to-zero).
   - Database persistence via Google Cloud Firestore.
 
 ### Non-Goals
@@ -91,12 +91,10 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
                                      +-------------------+
 ```
 
-### Architectural Decisions & Alternatives
+### Architectural Decisions
 
-1. **Compute Hosting Options**:
-   - **Google Cloud Run (Recommended)**: Containerized Go service offering automatic scale-to-zero, low cold-start latency (<1s in Go), portable Docker packaging, and straightforward deployment.
-   - **Google Cloud Functions (Alternative)**: Event-driven serverless functions. Viable, but managing multiple REST routes with sub-resources and middleware is more cleanly organized and tested in a Go Echo service on Cloud Run.
-   - **Google Kubernetes Engine - GKE (Alternative)**: Unnecessary operational overhead and baseline cluster costs for an MVP workload.
+1. **Compute Platform**:
+   - **Google Cloud Run**: Containerized Go service offering automatic scale-to-zero, low cold-start latency (<1s in Go), standard Docker packaging, and straightforward deployment. Selected as the dedicated compute platform.
 
 2. **Push Notification Services**:
    - **Firebase Cloud Messaging (FCM)**: Unified push notification delivery platform used to route push notifications to Android devices and forward to iOS devices.
