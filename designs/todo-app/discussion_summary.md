@@ -18,7 +18,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 - **Compute & Architecture Standards**:
   - Mobile client built using Flutter.
   - Backend implemented in Go (Echo framework).
-  - Backend compute deployed exclusively on Google Cloud Run (containerized, automatic scale-to-zero).
+  - Backend compute deployed exclusively on Google Cloud Run, configured with `min-instances: 1` to eliminate cold starts and ensure immediate response times for interactive requests and webhook triggers.
   - Database persistence via Google Cloud Firestore.
 
 ### Non-Goals
@@ -70,7 +70,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
                                v
 +-------------------------------------------------------------+
 |                 Backend API (Go / Echo)                     |
-|                   Hosted on Google Cloud Run                |
+|         Google Cloud Run (min-instances: 1)                 |
 |  - Auth Middleware (Verify Firebase ID Tokens)              |
 |  - Task & Subtask CRUD Endpoints                            |
 |  - Notification Scheduler (Google Cloud Tasks Client)       |
@@ -94,7 +94,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 ### Architectural Decisions
 
 1. **Compute Platform**:
-   - **Google Cloud Run**: Containerized Go service offering automatic scale-to-zero, low cold-start latency (<1s in Go), standard Docker packaging, and straightforward deployment. Selected as the dedicated compute platform.
+   - **Google Cloud Run**: Containerized Go service deployed with `min-instances: 1` to eliminate cold-start latency and ensure instantaneous response times for user API requests and time-critical push reminder webhooks.
 
 2. **Push Notification Services**:
    - **Firebase Cloud Messaging (FCM)**: Unified push notification delivery platform used to route push notifications to Android devices and forward to iOS devices.
@@ -120,7 +120,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 | **Large Subtask Lists** | Low | Embedding subtasks within the parent task document is bounded (capped at 10 subtasks per task for MVP) to remain well below Firestore's 1 MB document limit. |
 
 ## 7. Cost & Timeline
-- **Infrastructure Cost**: Fully fits within Google Cloud and Firebase free tiers for MVP volumes (Cloud Run scale-to-zero, Firestore 50k reads/day, Google Cloud Tasks 1M ops/month, free FCM/APNs delivery).
+- **Infrastructure Cost**: Fully fits within Google Cloud and Firebase free/low-cost tiers (Cloud Run with 1 min-instance ~$10–15/mo or free compute credits, Firestore 50k reads/day, Google Cloud Tasks 1M ops/month, free FCM/APNs delivery).
 - **Timeline**: 4–6 weeks for MVP:
   - Week 1–2: Backend API (Go, Echo, Firestore, Google Cloud Tasks, subtask models) & Auth middleware.
   - Week 3–4: Flutter UI (hierarchical task/subtask management, reminder offset picker, FCM integration).
