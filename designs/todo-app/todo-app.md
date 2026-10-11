@@ -278,3 +278,182 @@ sequenceDiagram
 ### 3. Reliability & Rollout
 * **Reboot Resilience**: Android `BOOT_COMPLETED` broadcast receiver ensures zero dropped reminders following device power-cycling.
 * **Android 12+ Permission Compliance**: The app gracefully checks and requests `SCHEDULE_EXACT_ALARM` permissions to ensure compliance with modern Android power management policies.
+
+--------------------------------------------------------------------------------
+
+## Detailed Implementation Plan
+
+### Target Files to Create/Modify
+
+#### 1. `pubspec.yaml` (Modify)
+* **Type / Scope**: Package configuration & dependency manifest.
+* **Proposed Changes**:
+  - Add production dependencies: `flutter_riverpod: ^2.5.1`, `firebase_core: ^2.30.0`, `firebase_auth: ^4.19.0`, `cloud_firestore: ^4.17.0`, `flutter_local_notifications: ^17.1.0`, `timezone: ^0.9.2`, `uuid: ^4.4.0`, `intl: ^0.19.0`.
+  - Add test dependencies: `flutter_test`, `mocktail: ^1.0.3`, `integration_test`.
+
+#### 2. `android/app/src/main/AndroidManifest.xml` (Modify)
+* **Type / Scope**: Android application manifest.
+* **Proposed Changes**:
+  - Add permissions: `android.permission.RECEIVE_BOOT_COMPLETED`, `android.permission.SCHEDULE_EXACT_ALARM`, `android.permission.USE_EXACT_ALARM`, `android.permission.POST_NOTIFICATIONS`.
+  - Register receiver for scheduled notification re-scheduling:
+    ```xml
+    <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+              android:exported="false">
+        <intent-filter>
+            <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+        </intent-filter>
+    </receiver>
+    ```
+
+#### 3. `ios/Runner/Info.plist` (Modify)
+* **Type / Scope**: iOS configuration property list.
+* **Proposed Changes**:
+  - Configure `UIBackgroundModes` with `fetch` and `remote-notification`.
+  - Add user notification usage descriptions for deadline alert authorizations.
+
+#### 4. `firestore.rules` (Create)
+* **Type / Scope**: Cloud Firestore security policy.
+* **Proposed Changes**:
+  - Define user collection boundary rules enforcing that read, write, update, and delete operations on `/users/{userId}/tasks/{taskId}` require `request.auth != null && request.auth.uid == userId`. Disallow global list operations.
+
+#### 5. `firestore.indexes.json` (Create)
+* **Type / Scope**: Cloud Firestore composite index configuration.
+* **Proposed Changes**:
+  - Define composite indexes for collection `tasks` on fields: `userId` (ASC), `isArchived` (ASC), `priority` (DESC), `deadline` (ASC).
+
+#### 6. `lib/features/tasks/models/task_model.dart` (Create)
+* **Type / Scope**: Domain entities & data serialization.
+* **Proposed Changes**:
+  - Implement `Task` class with fields: `id`, `userId`, `title`, `description`, `priority`, `isCompleted`, `isArchived`, `deadline`, `reminderLeadTimeMinutes`, `subtasks`, `createdAt`, `updatedAt`.
+  - Implement `Subtask` class with fields: `id`, `title`, `isCompleted`, `order`.
+  - Implement serialization helpers `toMap()`, `fromMap(Map<String, dynamic> json, String docId)`, `copyWith()`.
+  - Implement computed properties: `completedSubtasksCount`, `totalSubtasksCount`, `subtaskProgressRatio`.
+
+#### 7. `lib/features/tasks/data/task_repository.dart` (Create)
+* **Type / Scope**: Firestore data access layer.
+* **Proposed Changes**:
+  - Implement `TaskRepository` interface and `FirestoreTaskRepository` implementation.
+  - Implement methods:
+    - `Stream<List<Task>> watchActiveTasks(String userId)`
+    - `Stream<List<Task>> watchArchivedTasks(String userId)`
+    - `Future<void> saveTask(Task task)`
+    - `Future<void> deleteTask(String userId, String taskId)`
+    - `Future<void> toggleSubtask(String userId, String taskId, String subtaskId, bool isCompleted)`
+    - `Future<void> setArchivedStatus(String userId, String taskId, bool isArchived)`
+  - Ensure operations utilize Firestore offline cache with cache-first persistence behavior.
+
+#### 8. `lib/features/notifications/services/notification_service.dart` (Create)
+* **Type / Scope**: Native local notification engine.
+* **Proposed Changes**:
+  - Initialize `FlutterLocalNotificationsPlugin` with Android notification channel `task_deadlines` (High importance, vibration enabled) and iOS Darwin initialization settings.
+  - Implement `scheduleTaskReminder(Task task)`: computes lead-time offset, sets exact alarm with `tz.TZDateTime` in local zone.
+  - Implement `cancelTaskReminder(String taskId)`: removes scheduled notification using deterministic integer hash of `taskId`.
+  - Implement `rescheduleActiveTasks(List<Task> pendingTasks)`: batch schedules alarms on app boot/reboot.
+
+#### 9. `lib/features/auth/services/auth_service.dart` (Create)
+* **Type / Scope**: Firebase Authentication wrapper.
+* **Proposed Changes**:
+  - Implement `ensureSignedIn()`: checks `currentUser`; if null, initiates `signInAnonymously()`.
+  - Implement `linkWithGoogle(AuthCredential credential)` and `linkWithEmail(String email, String password)`: invokes `currentUser.linkWithCredential()` to convert guest session into permanent account while retaining the same `uid`.
+  - Provide `authStateChanges` stream provider for reactive UI consumption.
+
+#### 10. `lib/features/tasks/controllers/task_controller.dart` (Create)
+* **Type / Scope**: Riverpod presentation & state orchestration.
+* **Proposed Changes**:
+  - Define `TaskListController` (StateNotifier / AsyncNotifier) managing current filter criteria (all, by priority, due soon).
+  - Define `TaskFormController` for draft state validation, subtask addition/removal/reordering, and saving.
+  - Intercept task updates to trigger `NotificationService.scheduleTaskReminder` or `NotificationService.cancelTaskReminder` when deadlines, completion, or archive states change.
+
+#### 11. `lib/features/tasks/presentation/screens/task_list_screen.dart` (Create)
+* **Type / Scope**: Main Flutter UI dashboard screen.
+* **Proposed Changes**:
+  - Scaffold containing AppBar with filter popups, Guest status banner (if anonymous), Task list view with card components showing priority chips, deadline tags, and subtask progress indicators.
+  - FloatingActionButton to trigger creation modal/route.
+  - Swipe-to-archive gestures with undo snackbar.
+
+#### 12. `lib/features/tasks/presentation/screens/task_detail_screen.dart` (Create)
+* **Type / Scope**: Task creation and editing Flutter UI screen.
+* **Proposed Changes**:
+  - Form fields for Title and Description.
+  - Priority selector segment (Low, Medium, High).
+  - Deadline DateTime picker with Lead-time dropdown (At deadline, 15m before, 60m before, None).
+  - Reorderable checklist subtask builder with instant add-subtask text input and inline completion checkboxes.
+
+#### 13. `lib/features/tasks/presentation/screens/archive_screen.dart` (Create)
+* **Type / Scope**: Archived tasks Flutter UI screen.
+* **Proposed Changes**:
+  - List of archived tasks with explicit "Unarchive" and "Delete Permanently" action triggers.
+
+#### 14. `lib/features/auth/presentation/screens/account_linking_screen.dart` (Create)
+* **Type / Scope**: Settings and profile UI modal.
+* **Proposed Changes**:
+  - Displays current session status (Guest vs. Authenticated).
+  - Single-tap Google Sign-In and Email credential input forms linking the guest profile via `AuthService`. Shows clear explanation that existing tasks will be preserved.
+
+#### 15. `lib/main.dart` (Modify)
+* **Type / Scope**: Flutter application bootstrap entry point.
+* **Proposed Changes**:
+  - Call `WidgetsFlutterBinding.ensureInitialized()`.
+  - Initialize Firebase via `Firebase.initializeApp()`.
+  - Enable Firestore offline persistence cache settings (`PersistenceSettings(cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED)`).
+  - Initialize `NotificationService` and timezone database (`tz.initializeTimeZones()`).
+  - Run `ProviderScope` wrapping the root `MaterialApp`.
+
+#### 16. `test/unit/task_model_test.dart` (Create)
+* **Type / Scope**: Unit test suite.
+* **Proposed Changes**:
+  - Test `Task` and `Subtask` serialization to/from Map.
+  - Validate progress indicator calculation (e.g., 0/0 -> 0%, 2/4 -> 50%, 3/3 -> 100%).
+
+#### 17. `test/unit/notification_service_test.dart` (Create)
+* **Type / Scope**: Unit test suite with mocks.
+* **Proposed Changes**:
+  - Verify reminder lead-time calculation (e.g., 14:00 deadline with 15m lead time triggers at 13:45).
+  - Verify that completed tasks or null reminder leads bypass scheduling.
+
+#### 18. `test/unit/auth_linking_test.dart` (Create)
+* **Type / Scope**: Unit test suite with mocks.
+* **Proposed Changes**:
+  - Verify anonymous user UID retention during `linkWithCredential` execution.
+
+#### 19. `integration_test/task_lifecycle_test.dart` (Create)
+* **Type / Scope**: Flutter end-to-end integration test.
+* **Proposed Changes**:
+  - Create task in Guest Mode, add 3 subtasks, complete 1 subtask, archive parent task, verify task disappears from active list and appears in archive view, unarchive and verify restored state.
+
+---
+
+### Verification Plan
+
+* **Dependencies updates**:
+  - Execute `flutter pub get` and verify zero dependency resolution conflicts.
+* **Static Analysis & Linting**:
+  - Run `flutter analyze` ensuring zero warnings or lint errors under `flutter_lints`.
+  - Validate formatting via `dart format --output=none --set-exit-if-changed .`.
+* **Unit & Widget Tests**:
+  - Run `flutter test --coverage` covering task models, state controllers, and notification calculation utilities.
+* **Test Coverage Requirement**:
+  - Maintain 90%+ branch and line coverage across domain models, repositories, and state controllers:
+    `genhtml coverage/lcov.info -o coverage/html`.
+* **Compilation & Build**:
+  - Android: `flutter build apk --debug` and `flutter build appbundle --release`.
+  - iOS: `flutter build ios --no-codesign --simulator`.
+* **E2E / Integration Verification**:
+  - Run `flutter test integration_test/task_lifecycle_test.dart` on an Android emulator or iOS simulator.
+  - Offline simulation: Enable airplane mode on emulator, create task with 1-minute lead-time reminder, kill app process, verify alarm fires at exact hardware timestamp.
+
+---
+
+### Future Improvements
+
+* **Natural Language Processing (NLP)**: Add intelligent client-side NLP to auto-detect deadlines and priorities directly from the task title input field (e.g., "Submit report tomorrow at 9am !high").
+* **Home Screen Widgets**: Provide iOS WidgetKit and Android AppWidget providers to show active check-pointed subtasks directly on the user's home screen.
+* **Recurrence Engine**: Support recurring schedules (daily, weekly, monthly) using RFC 5545 recurrence rules.
+
+---
+
+### Open Questions
+
+* **Platform Notification Channel Customization**: Should Android notification sound and vibration patterns be customizable per priority level (e.g., high-priority tasks using an alarm tone, medium using default notification chime)?
