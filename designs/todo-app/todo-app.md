@@ -232,3 +232,49 @@ sequenceDiagram
 - Firestore automatically maintains an offline mutation queue. Read operations prioritize local cache when offline.
 - When network connectivity is restored, writes are sent upstream with an `updatedAt` server timestamp.
 - **Last-Write-Wins (LWW)**: Conflicts resolve by timestamp comparison. Subtasks being embedded in the task document ensures that checklist toggles are atomic mutations on the task record.
+
+--------------------------------------------------------------------------------
+
+## Alternatives Considered
+
+### Alternative 1: Subtasks as Firestore Subcollections (`/users/{userId}/tasks/{taskId}/subtasks/{subtaskId}`)
+* **Pros**: Subtasks can be updated individually without rewriting the parent document; no risk of hitting the 1MB Firestore document limit if thousands of subtasks exist.
+* **Cons**: Requires N+1 database queries to fetch subtasks for task cards, significantly increasing Firestore read operations and costs. Updating subtasks and parent progress requires distributed batch transactions, complicating offline sync.
+* **Reason for Rejection**: Tasks are constrained, single-level checklists with typically 3–15 items (taking <1KB of payload). Embedding subtasks ensures atomic updates, zero additional read costs, and instant local calculation of progress indicators.
+
+### Alternative 2: Pure Local SQLite (sqflite / Drift) + Custom Sync Backend
+* **Pros**: Full control over relational schema, local migrations, and custom binary sync protocols.
+* **Cons**: Requires engineering a custom backend sync server, conflict resolution protocol, and offline queueing mechanism from scratch. Increases maintenance footprint and delivery timeline.
+* **Reason for Rejection**: Cloud Firestore SDK provides built-in offline persistence, local query indexing, and automatic queueing out of the box. Building a custom sync engine introduces substantial operational complexity without delivering added user value for an MVP.
+
+### Alternative 3: Server-Triggered Push Notifications (FCM / APNs)
+* **Pros**: Scheduling logic resides entirely on the server; device reboots or OS battery optimization do not clear server schedules.
+* **Cons**: Push alerts completely fail when the device is in airplane mode, lacking cellular reception, or offline. Network latency can delay time-critical deadline alerts.
+* **Reason for Rejection**: A core non-negotiable requirement is that deadline reminders must fire reliably offline. Native exact hardware alarms (`AlarmManager` / `UNUserNotificationCenter`) guarantee delivery regardless of network status.
+
+### Alternative 4: Pure Local UUID Session Instead of Firebase Anonymous Auth
+* **Pros**: Works without any Firebase network call on first launch.
+* **Cons**: Converting a local guest to an authenticated user requires manually migrating and writing all existing local tasks to a new cloud user ID, handling schema translation, and resolving write permission conflicts.
+* **Reason for Rejection**: Firebase Anonymous Auth creates a persistent `UID` that seamlessly transitions into a permanent identity via `linkWithCredential()`, requiring zero document migrations or ID changes in Firestore.
+
+--------------------------------------------------------------------------------
+
+## Non-Functional Requirements related to a critical risk
+
+### 1. Security & Privacy
+* **Data Isolation**: Firestore security rules enforce strict ownership:
+  ```text
+  match /users/{userId}/tasks/{taskId} {
+    allow read, write: if request.auth != null && request.auth.uid == userId;
+  }
+  ```
+  Neither anonymous nor authenticated users can access, query, or mutate tasks belonging to any other `userId`.
+* **Credential Hygiene**: Sensitive OAuth client secrets are never embedded in the mobile binary; authentication handshakes leverage native Google Sign-In SDKs and Firebase Auth providers.
+
+### 2. Performance & Offline Durability
+* **Local UI Latency**: All task and subtask modifications are applied synchronously to local state and Firestore local cache, guaranteeing sub-500ms interaction latency regardless of network state.
+* **Battery & Power Consumption**: Exact alarms are scheduled strictly for explicit deadlines requested by the user, avoiding periodic background polling or wake-locks that degrade device battery life.
+
+### 3. Reliability & Rollout
+* **Reboot Resilience**: Android `BOOT_COMPLETED` broadcast receiver ensures zero dropped reminders following device power-cycling.
+* **Android 12+ Permission Compliance**: The app gracefully checks and requests `SCHEDULE_EXACT_ALARM` permissions to ensure compliance with modern Android power management policies.
