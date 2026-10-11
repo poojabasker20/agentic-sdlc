@@ -9,7 +9,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 - **Instant Onboarding**: Allow users to immediately create and manage tasks via anonymous authentication without an upfront registration wall.
 - **Task Management & Subtasks**:
   - Support task heading (title), text description, deadline date/time, and priority levels (Low, Medium, High).
-  - Enable task decomposition: a parent task can be broken down into multiple smaller subtasks (checklist items) with independent completion statuses.
+  - Enable task decomposition: a parent task can be broken down into multiple smaller subtasks (checklist items) with independent completion statuses (capped at 10 items for MVP).
 - **Customizable Reminder Notifications**:
   - Allow users to choose when they want to be reminded relative to the deadline (e.g., at deadline time, 15 minutes before, 1 hour before, 1 day before, or custom offset).
   - Reliably deliver push reminders to iOS and Android devices via Google Cloud Tasks and Firebase Cloud Messaging (FCM) / Apple Push Notification service (APNs).
@@ -23,7 +23,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 
 ### Non-Goals
 - **Complex Offline Sync Engine**: Offline conflict resolution, CRDTs (Conflict-free Replicated Data Types), or distributed bidirectional offline syncing are excluded for MVP. The app will operate in an online-only model for mutations, with local read-only caching planned for phase 2.
-- **Collaborative / Shared Lists**: Multi-user shared boards or assigned tasks are deferred to future iterations.
+- **Collaborative / Shared Lists**: Multi-user shared boards or assigned tasks are deferred to phase 2.
 - **Complex Recurring Task Rules**: Advanced recurring task recurrence engines (e.g., RRULE support) are out of scope for MVP.
 
 ## 3. Critical User Journeys (CUJs)
@@ -102,7 +102,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 
 3. **Data Model**:
    - Tasks stored under `users/{userId}/tasks/{taskId}`.
-   - Subtasks embedded as an ordered array of subtask objects (`id`, `title`, `isCompleted`, `order`) within the parent task document to ensure single-document atomic updates and eliminate multi-document read latency.
+   - Subtasks embedded as an ordered array of subtask objects (`id`, `title`, `isCompleted`, `order`) within the parent task document to ensure single-document atomic updates and eliminate multi-document read latency (capped at 10 items for MVP).
 
 4. **Customizable Notification Scheduling**:
    - Task stores `deadline` and `reminderOffset` (e.g., -3600 seconds for 1 hour before).
@@ -117,7 +117,7 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 | **Notification Failure on Offline Devices** | Medium | Because notifications are cloud-driven push notifications via FCM/APNs, a device without network connection at the reminder time cannot receive the notification until reconnected. Accepted trade-off of the online-only MVP model. |
 | **Anonymous Account Data Loss** | Medium | If an anonymous user deletes the app before linking, data cannot be recovered. Mitigated by persisting tokens in the platform Keychain/Keystore and displaying non-intrusive linking banners. |
 | **Task Rescheduling Churn** | Low | Modifying deadlines or reminder offsets creates orphaned Cloud Tasks. Mitigated by validating the task version and reminder timestamp at execution time rather than issuing expensive Cloud Task cancellation calls. |
-| **Large Subtask Lists** | Low | Embedding subtasks within the parent task document is bounded (e.g., maximum 50 subtasks per task) to remain well below Firestore's 1 MB document limit. |
+| **Large Subtask Lists** | Low | Embedding subtasks within the parent task document is bounded (capped at 10 subtasks per task for MVP) to remain well below Firestore's 1 MB document limit. |
 
 ## 7. Cost & Timeline
 - **Infrastructure Cost**: Fully fits within Google Cloud and Firebase free tiers for MVP volumes (Cloud Run scale-to-zero, Firestore 50k reads/day, Google Cloud Tasks 1M ops/month, free FCM/APNs delivery).
@@ -134,5 +134,6 @@ Build a lightweight, cross-platform mobile Todo application for iOS and Android 
 - **Account Linking Flow**: Verification that anonymous sessions migrate cleanly when linked to Google and Apple accounts without losing tasks or subtasks.
 
 ## 9. Future Roadmap & Iterations
-- **Phase 2 - Offline Read-Only Cache**: Integrate a local SQLite cache (via `sqflite` or `drift` in Flutter) so users can view previously fetched tasks and subtasks without network connectivity.
-- **Phase 3 - Shared Lists**: Allow task sharing and collaboration between linked user accounts.
+- **Phase 2 - Offline Read-Only Cache & Shared Lists**:
+  - Integrate a local SQLite cache (via `sqflite` or `drift` in Flutter) so users can view previously fetched tasks and subtasks without network connectivity.
+  - Introduce shared lists and task collaboration between linked user accounts.
