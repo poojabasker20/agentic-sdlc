@@ -14,7 +14,7 @@ To ensure fair scoring and integrity without requiring user accounts or persiste
 
 ## The Problem
 
-Casual mobile quiz players often face high friction upon first launch—including mandatory sign-ups, social media logins, and cluttered ad interfaces—leading to high drop-off rates before the first question is even played. At the same time, client-evaluated quiz games suffer from trivial score tampering, answer inspection via decompiled bundles or HTTP interception, and forged timestamps. Furthermore, fixed rigid timers can frustrate either fast players who want a quick speedrun or casual players who need extra reading time.
+Casual mobile quiz players often face high friction upon first launch—including mandatory sign-ups, social media logins, and cluttered ad interfaces—leading to high drop-off rates before the first question is even played. At the same time, client-evaluated quiz games suffer from trivial score tampering, answer inspection via decompiled bundles or HTTP interception, and forged timestamps. Furthermore, fixed timers can frustrate either fast players who want a quick speedrun or casual players who need extra reading time.
 
 We need a streamlined MVP trivia app that allows immediate play within seconds of installation, enables players to choose their own timer pace, maintains tamper-resistant score evaluation, and operates at zero cloud infrastructure cost.
 
@@ -73,11 +73,11 @@ Think of an **HMAC token** as a **tamper-evident digital wristband or sealed ent
 2. **During the Quiz**: The player keeps this sealed ticket on their device while they answer the questions. The answers are stored only on the server, so the player cannot "peek" into the ticket to see the answers.
 3. **At Submission**: When the player submits their answers, they return the ticket. The server checks the cryptographic seal. If anyone tried to alter the start time, change the pack ID, or tamper with the duration, the seal breaks and the server rejects the submission. If the seal is intact, the server verifies that `submission_time - start_time` is within the agreed duration plus network grace period.
 
-This gives the business complete anti-cheat integrity and reliable analytics without needing databases of user logins or persistent session tables.
+This provides tamper-resistant session validation and server-enforced time limits without needing databases of user logins or persistent session tables. Note that for the MVP, session analytics are not recorded on the server, and replay protection is scoped strictly to the agreed time window.
 
 ### System Architecture Flow
 
-The backend endpoints are implemented as a standard Go service using the Echo framework deployed to containerized **Cloud Run**, providing scale-to-zero economics, rapid sub-millisecond execution, and automatic HTTPS endpoints conforming to platform standards.
+The backend endpoints are implemented as a standard Go service using the Echo framework deployed to containerized **Cloud Run**, providing scale-to-zero economics, low-latency execution, and automatic HTTPS endpoints conforming to platform standards.
 
 ```mermaid
 sequenceDiagram
@@ -125,12 +125,14 @@ sequenceDiagram
      - `GET /api/v1/packs`: Returns list of available quiz packs with metadata (`id`, `title`, `description`, `question_count`, `default_duration_seconds`).
      - `POST /api/v1/packs/{pack_id}/start`: Accepts optional requested `{ "duration_seconds": int }`, clamps between 30 and 300 seconds, signs HMAC token, and returns questions stripped of correct answers.
      - `POST /api/v1/packs/{pack_id}/submit`: Accepts `{ "session_token": str, "answers": { "q1": "opt_b", ... } }`.
+   - **In-Memory Pack Cache**:
+     - Caches pack metadata and answer keys in-memory with a 5-minute TTL, eliminating repeated Firestore reads on `/start` and `/submit` requests to stay strictly within GCP free-tier quotas (50,000 reads/day).
    - **Security / Token Module**:
      - Token Structure: Base64URL-encoded JSON payload (`session_id`, `pack_id`, `started_at`, `duration_seconds`) joined with its HMAC-SHA256 signature.
      - Stateless validation: Verifies signature with `HMAC_SECRET_KEY`.
      - Timestamp enforcement: Rejects submissions if `current_utc_timestamp - started_at > duration_seconds + 15` (15-second network grace period).
    - **Scoring Engine**:
-     - Evaluates submitted answer IDs against the authoritative pack data stored in Firestore.
+     - Evaluates submitted answer IDs against the cached authoritative pack data.
      - Compiles itemized report: whether each question was correct, user choice vs. correct choice, and explanation.
 
 3. **Database (Firestore)**:
@@ -175,21 +177,29 @@ sequenceDiagram
 
 * **Pros of Python / Cloud Run Functions**: Rapid single-file scripting, no initial Dockerfile configuration.
 * **Cons of Python / Cloud Run Functions**: Higher cold-start latency compared to compiled Go binaries, diverges from company engineering standards (Golang, Echo, Cloud Run), and fragments backend tooling and CI/CD pipelines.
-* **Why Go + Echo on Cloud Run is Chosen**: Strictly aligns with standard company platform infrastructure, delivers compiled binary efficiency with sub-500ms cold starts, and integrates seamlessly into the standard corporate Docker build and Cloud Run deployment workflows.
+* **Why Go + Echo on Cloud Run is Chosen**: Strictly aligns with standard company platform infrastructure, delivers compiled binary efficiency with sub-500ms cold starts, and integrates into the standard corporate Docker build and Cloud Run deployment workflows.
 
-## Non-Functional Requirements related to a critical risk
+## Risks & Mitigations
+
+* **Risk 1: Client Submission Drop and Exceeded Grace Period**
+  - *Failure Mode*: On degraded cellular connections, exponential backoff retries may push final HTTP receipt past the 15-second grace window (`started_at + duration_seconds + 15s`), resulting in an expired session error (`400 Bad Request`).
+  - *Mitigation*: The mobile client schedules early submission triggers at 0 seconds remaining and caps retry delays to 2s and 4s (totaling < 7s of delay), well within the 15-second grace budget. If expired, the client surfaces an informative network timeout dialog allowing the user to restart without crashing.
+
+* **Risk 2: Free-Tier Firestore Read Quota Exhaustion**
+  - *Scalability Boundary*: GCP free tier permits 50,000 document reads per day. Without caching, high traffic on 2–3 packs could deplete daily read limits.
+  - *Mitigation*: Pack documents and answer keys are cached in-memory within Go process memory with a 5-minute TTL. Active Cloud Run instances serve start and submit requests from local RAM, reducing Firestore reads to near zero during steady-state traffic.
+
+* **Risk 3: Answer Key Harvesting via Instant Replay**
+  - *Failure Mode*: Because session tokens are stateless without persistent single-use flags, a user could submit blank answers immediately after starting to obtain the answer key and explanations in the response payload.
+  - *Mitigation*: In MVP, results are purely displayed locally on device with no public leaderboards or competitive ranking stakes. For post-MVP competitive modes, single-use token consumption will be enforced via low-cost ephemeral tracking (e.g., Firestore transactions or Redis token markers).
+
+* **Risk 4: Cloud Run Cold Starts & Latency Spikes**
+  - *Failure Mode*: Scaling from zero may introduce a 200–500ms initial latency spike for new instances.
+  - *Mitigation*: The Go Echo binary compiles to a static, lightweight image (< 20 MB) with no heavy reflection or runtime initialization, keeping cold starts reliably under 500ms.
 
 * **Security & Privacy**:
-  - Stateless HMAC-SHA256 tokens prevent tampering with session timestamps, configured timer duration, or pack identifiers.
-  - Answer keys are never sent to the client during the active quiz session.
-  - Server secrets (`HMAC_SECRET_KEY`) are managed via Secret Manager / environment variables in Cloud Run and never committed to source control.
+  - Server secrets (`HMAC_SECRET_KEY`) are managed via Secret Manager or Cloud Run environment variables and never committed to source control.
   - No Personally Identifiable Information (PII) is captured, stored, or transmitted.
-* **Performance & Latency**:
-  - Containerized Go binary running on Cloud Run ensures cold starts stay well under 500ms.
-  - Lightweight JSON payloads (< 20 KB per quiz pack) ensuring smooth operation even on limited mobile data connections.
-* **Resilience & Rollout**:
-  - 15-second submission grace period accommodates mobile network latency and edge-of-cell reconnects.
-  - Zero-downtime function deployment with atomic traffic migration.
 
 ---
 
