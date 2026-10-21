@@ -8,20 +8,23 @@
 
 ## Overview
 
-The GK Quiz Mobile Application is a lean, solo trivia experience built with Flutter and Python (FastAPI). It delivers curated, dynamically updated General Knowledge (GK) quiz packs directly to users on iOS and Android without mandatory sign-up walls or account creation. The design guarantees fair scoring through server-evaluated sessions secured by stateless HMAC cryptographic tokens.
+The GK Quiz Mobile Application is a lean, solo trivia experience built with Flutter and Python. It delivers curated, dynamically updated General Knowledge (GK) quiz packs directly to users on iOS and Android without mandatory sign-up walls or account creation. The service is hosted serverlessly using **Cloud Run Functions** (Cloud Run 2nd gen), keeping operational maintenance minimal and costs within Google Cloud free tiers. 
+
+To ensure fair scoring and integrity without requiring user accounts or persistent server databases, sessions are validated using stateless HMAC cryptographic tokens.
 
 ## The Problem
 
-Casual mobile quiz players often face high friction upon first launch—including mandatory sign-ups, social media logins, and cluttered ad interfaces—leading to high drop-off rates before the first question is even played. At the same time, client-evaluated quiz games suffer from trivial score tampering, answer inspection via decompiled bundles or HTTP interception, and forged timestamps.
+Casual mobile quiz players often face high friction upon first launch—including mandatory sign-ups, social media logins, and cluttered ad interfaces—leading to high drop-off rates before the first question is even played. At the same time, client-evaluated quiz games suffer from trivial score tampering, answer inspection via decompiled bundles or HTTP interception, and forged timestamps. Furthermore, fixed rigid timers can frustrate either fast players who want a quick speedrun or casual players who need extra reading time.
 
-We need a streamlined MVP trivia app that allows immediate play within seconds of installation while maintaining tamper-resistant score evaluation and zero ongoing server maintenance or database synchronization overhead.
+We need a streamlined MVP trivia app that allows immediate play within seconds of installation, enables players to choose their own timer pace, maintains tamper-resistant score evaluation, and operates at zero cloud infrastructure cost.
 
 ## Goals
 
 * **Zero-Friction Onboarding**: Enable users to start playing a quiz immediately upon opening the app without account registration or sign-in walls.
 * **Dynamic Content Delivery**: Deliver 2–3 curated GK quiz packs (e.g., Geography, Science, History) over an API so questions can be added or updated without updating client binaries.
+* **Customizable Timer Duration**: Allow users to select their preferred countdown duration (e.g., 60s, 120s, or 180s) before starting a quiz, with server-side validation to enforce safe limits (30s–300s).
 * **Tamper-Resistant Scoring**: Ensure answers cannot be inspected beforehand and prevent client-side score modification via server-evaluated sessions validated with stateless HMAC-SHA256 tokens.
-* **Cost-Effective Scalability**: Deploy on Cloud Run and Firestore to ensure $0 MVP operating costs within Google Cloud free-tier allocations.
+* **Serverless Cost-Effective Execution**: Deploy backend handlers on **Cloud Run Functions** and store content in **Firestore** to achieve $0 MVP operating costs within Google Cloud free-tier allocations.
 
 ## Non-Goals
 
@@ -35,18 +38,18 @@ We need a streamlined MVP trivia app that allows immediate play within seconds o
 ```yaml
 - user: Solo Trivia Player
   goals:
-  - goal: Discover and play curated GK quiz packs without account registration
+  - goal: Discover and play curated GK quiz packs with customizable timer pace
     tasks:
     - task: Browse available quiz packs
       scenario:
         given: The mobile application is installed and connected to the internet
         when: The user launches the application
-        then: The app displays 2–3 available GK packs with title, question count, and estimated time limit
-    - task: Start a quiz session
+        then: The app displays 2–3 available GK packs with title, question count, and default timer duration
+    - task: Select timer pace and start session
       scenario:
-        given: The user is on the pack catalog screen
-        when: The user selects a pack and taps "Start Quiz"
-        then: The app requests a session from the backend, receiving question prompts and choices (without answers) and a signed HMAC session token, initiating a countdown timer
+        given: The user is on the pack details screen
+        when: The user selects their desired timer pace (e.g., 60s Fast, 120s Standard, or 180s Relaxed) and taps "Start Quiz"
+        then: The app requests a session passing the chosen duration; backend validates bounds, returns question prompts (without answers) and a signed HMAC session token, initiating the local countdown
     - task: Play through questions and submit answers
       scenario:
         given: The quiz session is in progress
@@ -54,44 +57,56 @@ We need a streamlined MVP trivia app that allows immediate play within seconds o
         then: The app submits selected answer IDs along with the HMAC session token to the backend for verification
     - task: Review score and correct answer explanations
       scenario:
-        given: The backend validates the session token and completion timestamp
+        given: The backend validates the session token and completion timestamp against the agreed duration
         when: Evaluation completes successfully
         then: The app displays total score, time taken, and an itemized breakdown of questions with correct answers and explanations
 ```
 
 ## Technical Plan (Architecture)
 
-### Architectural Overview
+### Plain-Language Concept: What is an HMAC Token? (Business / Non-Technical Overview)
 
-The architecture follows a clean client-server model separating client-side presentation and session timing from server-side content storage, token validation, and scoring.
+To keep the app completely frictionless, we do not require users to create accounts or log in. However, without accounts, how do we prevent someone from cheating by modifying their score or faking how fast they finished?
+
+Think of an **HMAC token** as a **tamper-evident digital wristband or sealed entry ticket**:
+1. **At Quiz Start**: When the user taps "Start", the server issues a small digital ticket containing the quiz ID, the exact start time, and the agreed timer duration (e.g., 120 seconds). Crucially, the server stamps this ticket with an invisible, unforgeable cryptographic seal (`HMAC`) using a secret key only known to the server.
+2. **During the Quiz**: The player keeps this sealed ticket on their device while they answer the questions. The answers are stored only on the server, so the player cannot "peek" into the ticket to see the answers.
+3. **At Submission**: When the player submits their answers, they return the ticket. The server checks the cryptographic seal. If anyone tried to alter the start time, change the pack ID, or tamper with the duration, the seal breaks and the server rejects the submission. If the seal is intact, the server verifies that `submission_time - start_time` is within the agreed duration plus network grace period.
+
+This gives the business complete anti-cheat integrity and reliable analytics without needing databases of user logins or persistent session tables.
+
+### System Architecture Flow
+
+The backend endpoints are implemented as serverless **Cloud Run Functions** in Python (Cloud Run 2nd Gen), providing scale-to-zero economics, rapid event handling, and automatic HTTPS endpoints without managing container clusters.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
     participant Flutter as Flutter App
-    participant API as FastAPI Backend (Cloud Run)
+    participant Functions as Cloud Run Functions (Python)
     participant DB as Firestore
 
-    User->>Flutter: Open App / View Packs
-    Flutter->>API: GET /api/v1/packs
-    API->>DB: Fetch pack metadata (titles, durations, counts)
-    DB-->>API: Pack metadata list
-    API-->>Flutter: 200 OK (pack summaries)
+    User->>Flutter: Open App / Browse Packs
+    Flutter->>Functions: GET /api/v1/packs
+    Functions->>DB: Fetch pack metadata (titles, durations, counts)
+    DB-->>Functions: Pack metadata list
+    Functions-->>Flutter: 200 OK (pack summaries)
 
-    User->>Flutter: Tap "Start Quiz" (pack_id)
-    Flutter->>API: POST /api/v1/packs/{pack_id}/start
-    API->>DB: Fetch pack questions (excluding answers)
-    DB-->>API: Pack questions & master keys
-    API->>API: Sign HMAC token (session_id, pack_id, start_time, duration)
-    API-->>Flutter: 200 OK (HMAC token, questions without answers)
+    User->>Flutter: Select Duration (e.g. 60s) & Tap "Start"
+    Flutter->>Functions: POST /api/v1/packs/{pack_id}/start { "duration_seconds": 60 }
+    Functions->>Functions: Validate duration within bounds (30s <= duration <= 300s)
+    Functions->>DB: Fetch pack questions (excluding answers)
+    DB-->>Functions: Pack questions & master keys
+    Functions->>Functions: Sign HMAC token (session_id, pack_id, start_time, duration)
+    Functions-->>Flutter: 200 OK (HMAC token, questions without answers, agreed duration)
 
     User->>Flutter: Answers questions within countdown
-    Flutter->>API: POST /api/v1/packs/{pack_id}/submit (session_token, user_answers)
-    API->>API: Verify HMAC signature & time elapsed (time <= duration + grace_period)
-    API->>DB: Fetch master answer key for pack_id
-    API->>API: Compute score, correctness, explanations
-    API-->>Flutter: 200 OK (score, total, breakdown, explanations)
+    Flutter->>Functions: POST /api/v1/packs/{pack_id}/submit (session_token, user_answers)
+    Functions->>Functions: Verify HMAC signature & time elapsed (time <= duration + 15s grace)
+    Functions->>DB: Fetch master answer key for pack_id
+    Functions->>Functions: Compute score, correctness, explanations
+    Functions-->>Flutter: 200 OK (score, total, breakdown, explanations)
     Flutter->>User: Display Results & Review Screen
 ```
 
@@ -99,14 +114,16 @@ sequenceDiagram
 
 1. **Mobile Client (Flutter)**:
    - **Catalog View**: Displays pack cards fetched from `GET /api/v1/packs`.
-   - **Quiz Runner**: State management holding the active quiz index, selected option IDs, and local countdown timer. Questions display prompt text and 4 multiple-choice options.
+   - **Timer Pace Selector**: Allows player to choose duration options (e.g., 60s Fast, 120s Standard, 180s Relaxed) on the pack start sheet.
+   - **Quiz Runner**: State management holding the active quiz index, selected option IDs, and local countdown timer.
    - **Result Screen**: Renders score percentage, completion time, and an expandable review list with correct answers and educational explanations.
    - **Network Service**: Handles HTTP communication with automatic retry for transient network drops during submission.
 
-2. **Backend API (Python / FastAPI on Cloud Run)**:
+2. **Backend API (Cloud Run Functions / Python)**:
+   - Deployed as lightweight Cloud Run Functions (Python 3.11 runtime), providing instant auto-scaling to zero and minimal memory footprint (< 128MB).
    - **Endpoints**:
-     - `GET /api/v1/packs`: Returns list of available quiz packs with metadata (`id`, `title`, `description`, `question_count`, `duration_seconds`).
-     - `POST /api/v1/packs/{pack_id}/start`: Generates session ID and UTC start timestamp, computes HMAC-SHA256 signature, and responds with the signed token and question list (excluding answers).
+     - `GET /api/v1/packs`: Returns list of available quiz packs with metadata (`id`, `title`, `description`, `question_count`, `default_duration_seconds`).
+     - `POST /api/v1/packs/{pack_id}/start`: Accepts optional requested `{ "duration_seconds": int }`, clamps between 30 and 300 seconds, signs HMAC token, and returns stripped questions.
      - `POST /api/v1/packs/{pack_id}/submit`: Accepts `{ "session_token": str, "answers": { "q1": "opt_b", ... } }`.
    - **Security / Token Module**:
      - Token Structure: Base64URL-encoded JSON payload (`session_id`, `pack_id`, `started_at`, `duration_seconds`) joined with its HMAC-SHA256 signature.
@@ -122,7 +139,7 @@ sequenceDiagram
      - Fields:
        - `title`: string
        - `description`: string
-       - `duration_seconds`: number (e.g., 120)
+       - `default_duration_seconds`: number (e.g., 120)
        - `questions`: array of maps containing:
          - `id`: string
          - `prompt`: string
@@ -151,29 +168,25 @@ sequenceDiagram
 * **Cons**:
   - Redis (Cloud Memorystore) introduces a continuous baseline cloud cost ($30+/month), violating the $0 free-tier target.
   - Storing sessions in Firestore requires additional document writes and reads per quiz attempt, rapidly consuming free-tier limits.
-  - Adds session state synchronization complexity across Cloud Run container instances.
+  - Adds session state synchronization complexity across instances.
 * **Reason for Rejection**: Excessive operational complexity and cost for an MVP. Stateless HMAC tokens provide equivalent tamper resistance and time-window enforcement without persistent storage overhead.
 
-### Alternative C: Go (Echo) Backend Service
+### Alternative C: Dedicated Cloud Run Container Service vs. Cloud Run Functions
 
-* **Pros**:
-  - Follows corporate infrastructure recommendations.
-  - Lower memory footprint and slightly faster cold-start times on Cloud Run.
-* **Cons**:
-  - Requires writing more boilerplate for request validation and serialization.
-  - FastAPI was specifically chosen for team velocity and native Pydantic schema validation.
-* **Reason for Rejection**: The cold-start difference (< 1s) and memory usage of a lean FastAPI service are well within free-tier limits, and team familiarity ensures a faster 2–3 week delivery.
+* **Pros of Cloud Run Container Service**: Custom Dockerfile packaging, fine-grained multi-route proxying.
+* **Cons of Cloud Run Container Service**: Requires managing Docker build pipelines, container image registries (Artifact Registry), and higher cold-start container initialization overhead.
+* **Why Cloud Run Functions is Superior**: Functions deploy directly from source code, scale to zero seamlessly, incur no baseline cost, and integrate natively with Google Cloud HTTP triggers with minimal operational overhead for simple REST handlers.
 
 ## Non-Functional Requirements related to a critical risk
 
 * **Security & Privacy**:
-  - Stateless HMAC-SHA256 tokens prevent tampering with session timestamps or pack identifiers.
+  - Stateless HMAC-SHA256 tokens prevent tampering with session timestamps, configured timer duration, or pack identifiers.
   - Answer keys are never sent to the client during the active quiz session.
-  - Server secrets (`HMAC_SECRET_KEY`) are managed via Cloud Run environment secrets and never committed to source control.
+  - Server secrets (`HMAC_SECRET_KEY`) are managed via Secret Manager / environment variables in Cloud Run Functions and never committed to source control.
   - No Personally Identifiable Information (PII) is captured, stored, or transmitted.
 * **Performance & Latency**:
-  - Cloud Run container image optimized for minimal cold-start times (< 1.5s).
+  - Cloud Run Functions optimized with minimal dependencies to ensure cold starts stay under 1 second.
   - Lightweight JSON payloads (< 20 KB per quiz pack) ensuring smooth operation even on limited mobile data connections.
 * **Resilience & Rollout**:
   - 15-second submission grace period accommodates mobile network latency and edge-of-cell reconnects.
-  - Stateless architecture allows zero-downtime updates and seamless blue/green deployments on Cloud Run.
+  - Zero-downtime function deployment with atomic traffic migration.
