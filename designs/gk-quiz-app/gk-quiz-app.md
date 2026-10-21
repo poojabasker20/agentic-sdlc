@@ -1,7 +1,7 @@
 # GK Quiz Mobile Application MVP
 
 * **Author:** engineering-team
-* **Status:** Draft
+* **Status:** In Review
 * **Date:** 2025-05-18
 
 ---
