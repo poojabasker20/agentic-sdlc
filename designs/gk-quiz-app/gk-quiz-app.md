@@ -123,7 +123,7 @@ sequenceDiagram
    - Deployed as lightweight Cloud Run Functions (Python 3.11 runtime), providing instant auto-scaling to zero and minimal memory footprint (< 128MB).
    - **Endpoints**:
      - `GET /api/v1/packs`: Returns list of available quiz packs with metadata (`id`, `title`, `description`, `question_count`, `default_duration_seconds`).
-     - `POST /api/v1/packs/{pack_id}/start`: Accepts optional requested `{ "duration_seconds": int }`, clamps between 30 and 300 seconds, signs HMAC token, and returns stripped questions.
+     - `POST /api/v1/packs/{pack_id}/start`: Accepts optional requested `{ "duration_seconds": int }`, clamps between 30 and 300 seconds, signs HMAC token, and returns questions stripped of correct answers.
      - `POST /api/v1/packs/{pack_id}/submit`: Accepts `{ "session_token": str, "answers": { "q1": "opt_b", ... } }`.
    - **Security / Token Module**:
      - Token Structure: Base64URL-encoded JSON payload (`session_id`, `pack_id`, `started_at`, `duration_seconds`) joined with its HMAC-SHA256 signature.
