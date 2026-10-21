@@ -96,8 +96,8 @@ sequenceDiagram
     User->>Flutter: Select Duration (e.g. 60s) & Tap "Start"
     Flutter->>Backend: POST /api/v1/packs/{pack_id}/start { "duration_seconds": 60 }
     Backend->>Backend: Validate duration within bounds (30s <= duration <= 300s)
-    Backend->>DB: Fetch pack questions (excluding answers)
-    DB-->>Backend: Pack questions & master keys
+    Backend->>DB: Fetch pack document
+    DB-->>Backend: Pack questions & answer keys
     Backend->>Backend: Sign HMAC token (session_id, pack_id, start_time, duration)
     Backend-->>Flutter: 200 OK (HMAC token, questions without answers, agreed duration)
 
@@ -206,7 +206,10 @@ sequenceDiagram
 * **Proposed Changes**: Define Go structs with JSON tags:
   - `Option`: `ID string`, `Text string`.
   - `QuestionPublic`: `ID string`, `Prompt string`, `Options []Option`.
+  - `QuestionDetail`: `ID string`, `Prompt string`, `Options []Option`, `CorrectOptionID string`, `Explanation string`.
   - `PackSummary`: `ID string`, `Title string`, `Description string`, `QuestionCount int`, `DefaultDurationSeconds int`.
+  - `PackDetail`: `ID string`, `Title string`, `Description string`, `DefaultDurationSeconds int`, `Questions []QuestionDetail`.
+  - `SessionPayload`: `SessionID string`, `PackID string`, `StartedAt int64`, `DurationSeconds int`.
   - `StartQuizRequest`: `DurationSeconds *int`.
   - `StartQuizResponse`: `SessionToken string`, `PackID string`, `DurationSeconds int`, `Questions []QuestionPublic`.
   - `SubmitQuizRequest`: `SessionToken string`, `Answers map[string]string`.
@@ -268,7 +271,7 @@ sequenceDiagram
 #### 10. `mobile/lib/services/api_service.dart` (Create)
 * **Type / Scope**: Flutter HTTP network service.
 * **Proposed Changes**:
-  - Configurable `baseUrl` targeting Cloud Run Functions URL.
+  - Configurable `baseUrl` targeting Cloud Run service URL.
   - `Future<List<QuizPack>> getPacks()`: Fetches quiz pack catalog.
   - `Future<QuizSessionStart> startQuiz(String packId, int durationSeconds)`: Initiates session.
   - `Future<QuizResult> submitQuiz(String packId, String sessionToken, Map<String, String> answers)`: Submits responses with automatic retry (up to 2 retries with exponential backoff on network drop).
