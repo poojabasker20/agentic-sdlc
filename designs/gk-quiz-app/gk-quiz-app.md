@@ -130,6 +130,40 @@ sequenceDiagram
          - `correct_option_id`: string
          - `explanation`: string
 
+## Alternatives Considered
+
+### Alternative A: Client-Side Answer Evaluation (Bundled Assets)
+
+* **Pros**:
+  - Full offline capability; zero backend infrastructure and operational cost.
+  - Sub-millisecond question and result transitions.
+* **Cons**:
+  - Trivial to inspect answers by decompiling app assets or monitoring memory.
+  - Adding or modifying quiz packs requires releasing and distributing a new app version through app stores.
+  - Impossible to verify session timestamps or prevent automated score inflation.
+* **Reason for Rejection**: Fails the core project goals of dynamic content management and tamper-resistant score evaluation.
+
+### Alternative B: Stateful Server-Side Sessions with Redis / Firestore Session Documents
+
+* **Pros**:
+  - Enables server-side cancellation or single-use invalidation of active sessions.
+  - Easy to query active in-flight quizzes.
+* **Cons**:
+  - Redis (Cloud Memorystore) introduces a continuous baseline cloud cost ($30+/month), violating the $0 free-tier target.
+  - Storing sessions in Firestore requires additional document writes and reads per quiz attempt, rapidly consuming free-tier limits.
+  - Adds session state synchronization complexity across Cloud Run container instances.
+* **Reason for Rejection**: Excessive operational complexity and cost for an MVP. Stateless HMAC tokens provide equivalent tamper resistance and time-window enforcement without persistent storage overhead.
+
+### Alternative C: Go (Echo) Backend Service
+
+* **Pros**:
+  - Follows corporate infrastructure recommendations.
+  - Lower memory footprint and slightly faster cold-start times on Cloud Run.
+* **Cons**:
+  - Requires writing more boilerplate for request validation and serialization.
+  - FastAPI was specifically chosen for team velocity and native Pydantic schema validation.
+* **Reason for Rejection**: The cold-start difference (< 1s) and memory usage of a lean FastAPI service are well within free-tier limits, and team familiarity ensures a faster 2–3 week delivery.
+
 ## Non-Functional Requirements related to a critical risk
 
 * **Security & Privacy**:
