@@ -8,7 +8,7 @@
 
 ## Overview
 
-The GK Quiz Mobile Application is a lean, solo trivia experience built with Flutter and Python. It delivers curated, dynamically updated General Knowledge (GK) quiz packs directly to users on iOS and Android without mandatory sign-up walls or account creation. The service is hosted serverlessly using **Cloud Run Functions** (Cloud Run 2nd gen), keeping operational maintenance minimal and costs within Google Cloud free tiers. 
+The GK Quiz Mobile Application is a lean, solo trivia experience built with Flutter and Go (Echo framework). It delivers curated, dynamically updated General Knowledge (GK) quiz packs directly to users on iOS and Android without mandatory sign-up walls or account creation. The service is hosted serverlessly on **Cloud Run**, keeping operational maintenance minimal and costs within Google Cloud free tiers while conforming to company engineering standards.
 
 To ensure fair scoring and integrity without requiring user accounts or persistent server databases, sessions are validated using stateless HMAC cryptographic tokens.
 
@@ -24,7 +24,7 @@ We need a streamlined MVP trivia app that allows immediate play within seconds o
 * **Dynamic Content Delivery**: Deliver 2–3 curated GK quiz packs (e.g., Geography, Science, History) over an API so questions can be added or updated without updating client binaries.
 * **Customizable Timer Duration**: Allow users to select their preferred countdown duration (e.g., 60s, 120s, or 180s) before starting a quiz, with server-side validation to enforce safe limits (30s–300s).
 * **Tamper-Resistant Scoring**: Ensure answers cannot be inspected beforehand and prevent client-side score modification via server-evaluated sessions validated with stateless HMAC-SHA256 tokens.
-* **Serverless Cost-Effective Execution**: Deploy backend handlers on **Cloud Run Functions** and store content in **Firestore** to achieve $0 MVP operating costs within Google Cloud free-tier allocations.
+* **Serverless Cost-Effective Execution**: Deploy backend handlers on standard company **Cloud Run** (using Go and Echo) and store content in **Firestore** to achieve $0 MVP operating costs within Google Cloud free-tier allocations.
 
 ## Non-Goals
 
@@ -77,36 +77,36 @@ This gives the business complete anti-cheat integrity and reliable analytics wit
 
 ### System Architecture Flow
 
-The backend endpoints are implemented as serverless **Cloud Run Functions** in Python (Cloud Run 2nd Gen), providing scale-to-zero economics, rapid event handling, and automatic HTTPS endpoints without managing container clusters.
+The backend endpoints are implemented as a standard Go service using the Echo framework deployed to containerized **Cloud Run**, providing scale-to-zero economics, rapid sub-millisecond execution, and automatic HTTPS endpoints conforming to platform standards.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
     participant Flutter as Flutter App
-    participant Functions as Cloud Run Functions (Python)
+    participant Backend as Cloud Run (Go / Echo)
     participant DB as Firestore
 
     User->>Flutter: Open App / Browse Packs
-    Flutter->>Functions: GET /api/v1/packs
-    Functions->>DB: Fetch pack metadata (titles, durations, counts)
-    DB-->>Functions: Pack metadata list
-    Functions-->>Flutter: 200 OK (pack summaries)
+    Flutter->>Backend: GET /api/v1/packs
+    Backend->>DB: Fetch pack metadata (titles, durations, counts)
+    DB-->>Backend: Pack metadata list
+    Backend-->>Flutter: 200 OK (pack summaries)
 
     User->>Flutter: Select Duration (e.g. 60s) & Tap "Start"
-    Flutter->>Functions: POST /api/v1/packs/{pack_id}/start { "duration_seconds": 60 }
-    Functions->>Functions: Validate duration within bounds (30s <= duration <= 300s)
-    Functions->>DB: Fetch pack questions (excluding answers)
-    DB-->>Functions: Pack questions & master keys
-    Functions->>Functions: Sign HMAC token (session_id, pack_id, start_time, duration)
-    Functions-->>Flutter: 200 OK (HMAC token, questions without answers, agreed duration)
+    Flutter->>Backend: POST /api/v1/packs/{pack_id}/start { "duration_seconds": 60 }
+    Backend->>Backend: Validate duration within bounds (30s <= duration <= 300s)
+    Backend->>DB: Fetch pack questions (excluding answers)
+    DB-->>Backend: Pack questions & master keys
+    Backend->>Backend: Sign HMAC token (session_id, pack_id, start_time, duration)
+    Backend-->>Flutter: 200 OK (HMAC token, questions without answers, agreed duration)
 
     User->>Flutter: Answers questions within countdown
-    Flutter->>Functions: POST /api/v1/packs/{pack_id}/submit (session_token, user_answers)
-    Functions->>Functions: Verify HMAC signature & time elapsed (time <= duration + 15s grace)
-    Functions->>DB: Fetch master answer key for pack_id
-    Functions->>Functions: Compute score, correctness, explanations
-    Functions-->>Flutter: 200 OK (score, total, breakdown, explanations)
+    Flutter->>Backend: POST /api/v1/packs/{pack_id}/submit (session_token, user_answers)
+    Backend->>Backend: Verify HMAC signature & time elapsed (time <= duration + 15s grace)
+    Backend->>DB: Fetch master answer key for pack_id
+    Backend->>Backend: Compute score, correctness, explanations
+    Backend-->>Flutter: 200 OK (score, total, breakdown, explanations)
     Flutter->>User: Display Results & Review Screen
 ```
 
@@ -119,8 +119,8 @@ sequenceDiagram
    - **Result Screen**: Renders score percentage, completion time, and an expandable review list with correct answers and educational explanations.
    - **Network Service**: Handles HTTP communication with automatic retry for transient network drops during submission.
 
-2. **Backend API (Cloud Run Functions / Python)**:
-   - Deployed as lightweight Cloud Run Functions (Python 3.11 runtime), providing instant auto-scaling to zero and minimal memory footprint (< 128MB).
+2. **Backend API (Cloud Run / Go + Echo)**:
+   - Deployed as a lightweight containerized Go service using the Echo framework on Cloud Run, providing instant auto-scaling to zero, sub-500ms cold starts, and minimal memory footprint (< 64MB).
    - **Endpoints**:
      - `GET /api/v1/packs`: Returns list of available quiz packs with metadata (`id`, `title`, `description`, `question_count`, `default_duration_seconds`).
      - `POST /api/v1/packs/{pack_id}/start`: Accepts optional requested `{ "duration_seconds": int }`, clamps between 30 and 300 seconds, signs HMAC token, and returns questions stripped of correct answers.
@@ -171,21 +171,21 @@ sequenceDiagram
   - Adds session state synchronization complexity across instances.
 * **Reason for Rejection**: Excessive operational complexity and cost for an MVP. Stateless HMAC tokens provide equivalent tamper resistance and time-window enforcement without persistent storage overhead.
 
-### Alternative C: Dedicated Cloud Run Container Service vs. Cloud Run Functions
+### Alternative C: Python / Cloud Run Functions vs. Go + Echo on Cloud Run
 
-* **Pros of Cloud Run Container Service**: Custom Dockerfile packaging, fine-grained multi-route proxying.
-* **Cons of Cloud Run Container Service**: Requires managing Docker build pipelines, container image registries (Artifact Registry), and higher cold-start container initialization overhead.
-* **Why Cloud Run Functions is Superior**: Functions deploy directly from source code, scale to zero seamlessly, incur no baseline cost, and integrate natively with Google Cloud HTTP triggers with minimal operational overhead for simple REST handlers.
+* **Pros of Python / Cloud Run Functions**: Rapid single-file scripting, no initial Dockerfile configuration.
+* **Cons of Python / Cloud Run Functions**: Higher cold-start latency compared to compiled Go binaries, diverges from company engineering standards (Golang, Echo, Cloud Run), and fragments backend tooling and CI/CD pipelines.
+* **Why Go + Echo on Cloud Run is Chosen**: Strictly aligns with standard company platform infrastructure, delivers compiled binary efficiency with sub-500ms cold starts, and integrates seamlessly into the standard corporate Docker build and Cloud Run deployment workflows.
 
 ## Non-Functional Requirements related to a critical risk
 
 * **Security & Privacy**:
   - Stateless HMAC-SHA256 tokens prevent tampering with session timestamps, configured timer duration, or pack identifiers.
   - Answer keys are never sent to the client during the active quiz session.
-  - Server secrets (`HMAC_SECRET_KEY`) are managed via Secret Manager / environment variables in Cloud Run Functions and never committed to source control.
+  - Server secrets (`HMAC_SECRET_KEY`) are managed via Secret Manager / environment variables in Cloud Run and never committed to source control.
   - No Personally Identifiable Information (PII) is captured, stored, or transmitted.
 * **Performance & Latency**:
-  - Cloud Run Functions optimized with minimal dependencies to ensure cold starts stay under 1 second.
+  - Containerized Go binary running on Cloud Run ensures cold starts stay well under 500ms.
   - Lightweight JSON payloads (< 20 KB per quiz pack) ensuring smooth operation even on limited mobile data connections.
 * **Resilience & Rollout**:
   - 15-second submission grace period accommodates mobile network latency and edge-of-cell reconnects.
@@ -197,55 +197,56 @@ sequenceDiagram
 
 ### Target Files to Create/Modify
 
-#### 1. `backend/requirements.txt` (Create)
-* **Type / Scope**: Python dependency manifest.
-* **Proposed Changes**: Declare minimal dependencies: `functions-framework>=3.5.0`, `pydantic>=2.6.0`, `google-cloud-firestore>=2.14.0`, and `pytest>=8.0.0` (for testing). Keeps cold starts sub-second.
+#### 1. `backend/go.mod` & `backend/go.sum` (Create)
+* **Type / Scope**: Go module manifest.
+* **Proposed Changes**: Declare dependencies conforming to corporate standard: `github.com/labstack/echo/v4`, `cloud.google.com/go/firestore`, `github.com/google/uuid`, and `github.com/stretchr/testify`.
 
-#### 2. `backend/models.py` (Create)
-* **Type / Scope**: Python Pydantic domain models.
-* **Proposed Changes**: Define schemas:
-  - `OptionSchema`: `id: str`, `text: str`.
-  - `QuestionPublicSchema`: `id: str`, `prompt: str`, `options: list[OptionSchema]`.
-  - `PackSummarySchema`: `id: str`, `title: str`, `description: str`, `question_count: int`, `default_duration_seconds: int`.
-  - `StartQuizRequest`: `duration_seconds: Optional[int] = None`.
-  - `StartQuizResponse`: `session_token: str`, `pack_id: str`, `duration_seconds: int`, `questions: list[QuestionPublicSchema]`.
-  - `SubmitQuizRequest`: `session_token: str`, `answers: dict[str, str]` (mapping `question_id` -> `selected_option_id`).
-  - `QuestionReviewItem`: `question_id: str`, `is_correct: bool`, `selected_option_id: Optional[str]`, `correct_option_id: str`, `explanation: str`.
-  - `SubmitQuizResponse`: `score: int`, `total: int`, `percentage: float`, `elapsed_seconds: int`, `breakdown: list[QuestionReviewItem]`.
+#### 2. `backend/models/quiz.go` (Create)
+* **Type / Scope**: Go domain data models.
+* **Proposed Changes**: Define Go structs with JSON tags:
+  - `Option`: `ID string`, `Text string`.
+  - `QuestionPublic`: `ID string`, `Prompt string`, `Options []Option`.
+  - `PackSummary`: `ID string`, `Title string`, `Description string`, `QuestionCount int`, `DefaultDurationSeconds int`.
+  - `StartQuizRequest`: `DurationSeconds *int`.
+  - `StartQuizResponse`: `SessionToken string`, `PackID string`, `DurationSeconds int`, `Questions []QuestionPublic`.
+  - `SubmitQuizRequest`: `SessionToken string`, `Answers map[string]string`.
+  - `QuestionReviewItem`: `QuestionID string`, `IsCorrect bool`, `SelectedOptionID *string`, `CorrectOptionID string`, `Explanation string`.
+  - `SubmitQuizResponse`: `Score int`, `Total int`, `Percentage float64`, `ElapsedSeconds int`, `Breakdown []QuestionReviewItem`.
 
-#### 3. `backend/auth.py` (Create)
+#### 3. `backend/auth/token.go` (Create)
 * **Type / Scope**: Cryptographic token management.
 * **Proposed Changes**:
-  - `create_session_token(pack_id: str, duration_seconds: int, secret: str) -> str`: Builds JSON payload with `session_id` (UUID4), `pack_id`, `started_at` (UTC timestamp), and `duration_seconds`. Computes HMAC-SHA256 signature using `secret`, returning `base64url(payload).base64url(sig)`.
-  - `verify_session_token(token: str, secret: str, grace_period_seconds: int = 15) -> tuple[bool, Optional[dict], Optional[str]]`: Verifies signature authenticity, decodes payload, and checks that `now - started_at <= duration_seconds + grace_period_seconds`. Returns validation result and reason.
+  - `CreateSessionToken(packID string, durationSeconds int, secret string) (string, error)`: Builds JSON payload with `session_id` (UUIDv4), `pack_id`, `started_at` (Unix UTC timestamp), and `duration_seconds`. Signs payload using HMAC-SHA256, returning `base64url(payload).base64url(sig)`.
+  - `VerifySessionToken(token string, secret string, gracePeriodSeconds int) (bool, *SessionPayload, string)`: Verifies HMAC signature, parses JSON payload, and verifies that `now - started_at <= duration_seconds + gracePeriodSeconds`.
 
-#### 4. `backend/db.py` (Create)
+#### 4. `backend/db/firestore.go` (Create)
 * **Type / Scope**: Firestore data access module.
 * **Proposed Changes**:
-  - `get_firestore_client()`: Initializes and memoizes Firestore client.
-  - `fetch_all_pack_summaries() -> list[PackSummarySchema]`: Retrieves packs projection (excluding master answer keys).
-  - `fetch_pack_by_id(pack_id: str) -> Optional[dict]`: Retrieves full pack document including question master answers.
+  - `NewFirestoreClient(ctx context.Context) (*firestore.Client, error)`: Initializes Firestore client.
+  - `FetchAllPackSummaries(ctx context.Context, client *firestore.Client) ([]PackSummary, error)`: Retrieves pack summaries projection.
+  - `FetchPackByID(ctx context.Context, client *firestore.Client, packID string) (*PackDetail, error)`: Retrieves full pack document including answer keys.
 
-#### 5. `backend/main.py` (Create)
-* **Type / Scope**: Cloud Run Functions entry point.
+#### 5. `backend/main.go` & `backend/Dockerfile` (Create)
+* **Type / Scope**: Go Echo server entry point and container definition.
 * **Proposed Changes**:
-  - Expose `@functions_framework.http` entry handler routing URL paths:
-    - `GET /api/v1/packs`: Returns list of summaries from `db.fetch_all_pack_summaries()`.
-    - `POST /api/v1/packs/<pack_id>/start`: Validates requested `duration_seconds` (clamping between 30 and 300 seconds), issues HMAC session token via `auth.create_session_token`, and returns questions stripped of correct answers.
-    - `POST /api/v1/packs/<pack_id>/submit`: Verifies token authenticity and timestamp via `auth.verify_session_token`. Evaluates submitted answers against `fetch_pack_by_id` master keys, computing score, total, percentage, and review items.
-  - Adds CORS headers enabling Flutter mobile client calls.
+  - Setup Echo web server with CORS, logging, and recover middleware.
+  - Routes:
+    - `GET /api/v1/packs`: Returns summaries from `FetchAllPackSummaries`.
+    - `POST /api/v1/packs/:pack_id/start`: Validates requested `duration_seconds` (clamping between 30 and 300 seconds), issues HMAC session token via `CreateSessionToken`, and returns questions stripped of correct answers.
+    - `POST /api/v1/packs/:pack_id/submit`: Verifies token authenticity and timestamp via `VerifySessionToken`. Evaluates submitted answers against master keys, computing score, total, percentage, and review items.
+  - Multi-stage `Dockerfile`: Compiles static Go binary via `golang:1.22-alpine` builder and runs on lightweight `alpine` / `distroless` image for deployment on Cloud Run.
 
-#### 6. `backend/seed.py` (Create)
-* **Type / Scope**: Database seed script (CLI tool).
+#### 6. `backend/cmd/seed/main.go` (Create)
+* **Type / Scope**: Database seed CLI tool.
 * **Proposed Changes**:
   - Populate 3 initial GK packs into Firestore collection `packs`:
     1. `world-geography`: 10 questions on capitals, landforms, and borders.
     2. `science-nature`: 10 questions on physics, biology, and astronomy.
     3. `history-culture`: 10 questions on world heritage, historical milestones, and art.
-  - Ensures atomic idempotency via Firestore `set(..., merge=True)`.
+  - Ensures atomic idempotency via Firestore `Set(ctx, ..., firestore.MergeAll)`.
 
-#### 7. `backend/tests/test_api.py` (Create)
-* **Type / Scope**: Automated test suite (Pytest).
+#### 7. `backend/main_test.go` & `backend/auth/token_test.go` (Create)
+* **Type / Scope**: Automated unit and API test suite (standard `testing` + `testify`).
 * **Proposed Changes**:
   - Test valid token signing and verification.
   - Test tampering rejection (modified payload, altered duration, invalid signature).
@@ -317,21 +318,21 @@ sequenceDiagram
 * **Type / Scope**: Project documentation.
 * **Proposed Changes**:
   - Document local development instructions for Flutter (`flutter run`).
-  - Document Cloud Run Functions deployment command (`gcloud functions deploy ...`).
-  - Document database seeding instructions (`python backend/seed.py`).
+  - Document Cloud Run deployment command (`gcloud run deploy gk-quiz-api ...`).
+  - Document database seeding instructions (`go run backend/cmd/seed/main.go`).
 
 ---
 
 ### Unified Implementation Steps
 
 1. **Phase 1: Backend Foundation & Data Seeding**
-   - Setup `backend/requirements.txt` and install virtual environment.
-   - Implement `backend/models.py` with Pydantic request/response structures.
-   - Implement `backend/auth.py` with HMAC-SHA256 signing and expiration checks.
-   - Implement `backend/db.py` for Firestore operations.
-   - Create `backend/seed.py` and populate the 3 curated GK packs into Firestore.
-   - Implement `backend/main.py` routing the 3 Cloud Run Functions endpoints.
-   - Execute Pytest suite in `backend/tests/test_api.py` to verify 100% token security, timer bounds, and scoring logic.
+   - Setup `backend/go.mod` and install dependencies.
+   - Implement `backend/models/quiz.go` with Go struct request/response definitions.
+   - Implement `backend/auth/token.go` with HMAC-SHA256 signing and expiration checks.
+   - Implement `backend/db/firestore.go` for Firestore operations.
+   - Create `backend/cmd/seed/main.go` and populate the 3 curated GK packs into Firestore.
+   - Implement `backend/main.go` routing the 3 endpoints via Echo, and provide `backend/Dockerfile`.
+   - Execute test suite via `go test ./... -v` to verify 100% token security, timer bounds, and scoring logic.
 
 2. **Phase 2: Mobile Client Architecture & State**
    - Update `mobile/pubspec.yaml` with HTTP and state management dependencies.
@@ -347,8 +348,8 @@ sequenceDiagram
 
 4. **Phase 4: Automated Testing, Deployment & Verification**
    - Run Flutter unit and widget tests (`flutter test`).
-   - Deploy backend to Cloud Run Functions with environment secrets.
-   - Run end-to-end integration test validating a complete quiz run on mobile against deployed functions.
+   - Deploy backend container to Cloud Run with environment secrets.
+   - Run end-to-end integration test validating a complete quiz run on mobile against deployed Cloud Run service.
    - Update `README.md` with complete operator setup guides.
 
 ---
@@ -356,17 +357,17 @@ sequenceDiagram
 ### Verification Plan
 
 * **Dependency Updates & Hygiene**:
-  - Python: `pip check && pip-audit` (verify zero known vulnerabilities).
+  - Go: `go list -m all && govulncheck ./...` (verify zero known vulnerabilities).
   - Flutter: `flutter pub get && flutter pub outdated`.
 * **Static Analysis & Linting**:
-  - Python: `flake8 backend/` and `mypy backend/`.
+  - Go: `golangci-lint run ./...` and `go vet ./...`.
   - Flutter: `flutter analyze`.
 * **Unit & Integration Tests**:
-  - Backend: `pytest backend/tests/ -v --cov=backend --cov-report=term-missing` (Require >= 90% coverage on auth and scoring).
+  - Backend: `go test -v -race -cover ./...` (Require >= 90% coverage on auth and scoring).
   - Mobile: `flutter test --coverage` (Ensure widget selection and timer expiration paths pass).
 * **Compilation & Build**:
   - Mobile: `flutter build apk --debug` and `flutter build ios --no-codesign` to verify clean builds.
-  - Backend: Cloud Run Functions deployment test (`gcloud functions deploy gk-quiz-api ... --dry-run` or local `functions-framework --target=entry_point`).
+  - Backend: `docker build -t gk-quiz-api backend/` and Cloud Run deployment dry-run (`gcloud run deploy gk-quiz-api --image=... --dry-run`).
 * **E2E Smoke Verification**:
   - Launch app -> load packs -> pick 60s timer -> answer 10 questions -> submit -> verify results, correct score, and explanations render within 2 seconds.
 
@@ -382,4 +383,4 @@ sequenceDiagram
 
 ### Open Questions
 
-* **Firestore Region Configuration**: Confirm target GCP project region (e.g., `us-central1` or `europe-west1`) for co-locating Cloud Run Functions and Firestore to minimize latency.
+* **Firestore Region Configuration**: Confirm target GCP project region (e.g., `us-central1` or `europe-west1`) for co-locating Cloud Run and Firestore to minimize latency.
