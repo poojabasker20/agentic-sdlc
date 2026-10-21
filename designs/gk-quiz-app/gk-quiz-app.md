@@ -190,3 +190,196 @@ sequenceDiagram
 * **Resilience & Rollout**:
   - 15-second submission grace period accommodates mobile network latency and edge-of-cell reconnects.
   - Zero-downtime function deployment with atomic traffic migration.
+
+---
+
+## Detailed Implementation Plan
+
+### Target Files to Create/Modify
+
+#### 1. `backend/requirements.txt` (Create)
+* **Type / Scope**: Python dependency manifest.
+* **Proposed Changes**: Declare minimal dependencies: `functions-framework>=3.5.0`, `pydantic>=2.6.0`, `google-cloud-firestore>=2.14.0`, and `pytest>=8.0.0` (for testing). Keeps cold starts sub-second.
+
+#### 2. `backend/models.py` (Create)
+* **Type / Scope**: Python Pydantic domain models.
+* **Proposed Changes**: Define schemas:
+  - `OptionSchema`: `id: str`, `text: str`.
+  - `QuestionPublicSchema`: `id: str`, `prompt: str`, `options: list[OptionSchema]`.
+  - `PackSummarySchema`: `id: str`, `title: str`, `description: str`, `question_count: int`, `default_duration_seconds: int`.
+  - `StartQuizRequest`: `duration_seconds: Optional[int] = None`.
+  - `StartQuizResponse`: `session_token: str`, `pack_id: str`, `duration_seconds: int`, `questions: list[QuestionPublicSchema]`.
+  - `SubmitQuizRequest`: `session_token: str`, `answers: dict[str, str]` (mapping `question_id` -> `selected_option_id`).
+  - `QuestionReviewItem`: `question_id: str`, `is_correct: bool`, `selected_option_id: Optional[str]`, `correct_option_id: str`, `explanation: str`.
+  - `SubmitQuizResponse`: `score: int`, `total: int`, `percentage: float`, `elapsed_seconds: int`, `breakdown: list[QuestionReviewItem]`.
+
+#### 3. `backend/auth.py` (Create)
+* **Type / Scope**: Cryptographic token management.
+* **Proposed Changes**:
+  - `create_session_token(pack_id: str, duration_seconds: int, secret: str) -> str`: Builds JSON payload with `session_id` (UUID4), `pack_id`, `started_at` (UTC timestamp), and `duration_seconds`. Computes HMAC-SHA256 signature using `secret`, returning `base64url(payload).base64url(sig)`.
+  - `verify_session_token(token: str, secret: str, grace_period_seconds: int = 15) -> tuple[bool, Optional[dict], Optional[str]]`: Verifies signature authenticity, decodes payload, and checks that `now - started_at <= duration_seconds + grace_period_seconds`. Returns validation result and reason.
+
+#### 4. `backend/db.py` (Create)
+* **Type / Scope**: Firestore data access module.
+* **Proposed Changes**:
+  - `get_firestore_client()`: Initializes and memoizes Firestore client.
+  - `fetch_all_pack_summaries() -> list[PackSummarySchema]`: Retrieves packs projection (excluding master answer keys).
+  - `fetch_pack_by_id(pack_id: str) -> Optional[dict]`: Retrieves full pack document including question master answers.
+
+#### 5. `backend/main.py` (Create)
+* **Type / Scope**: Cloud Run Functions entry point.
+* **Proposed Changes**:
+  - Expose `@functions_framework.http` entry handler routing URL paths:
+    - `GET /api/v1/packs`: Returns list of summaries from `db.fetch_all_pack_summaries()`.
+    - `POST /api/v1/packs/<pack_id>/start`: Validates requested `duration_seconds` (clamping between 30 and 300 seconds), issues HMAC session token via `auth.create_session_token`, and returns questions stripped of correct answers.
+    - `POST /api/v1/packs/<pack_id>/submit`: Verifies token authenticity and timestamp via `auth.verify_session_token`. Evaluates submitted answers against `fetch_pack_by_id` master keys, computing score, total, percentage, and review items.
+  - Adds CORS headers enabling Flutter mobile client calls.
+
+#### 6. `backend/seed.py` (Create)
+* **Type / Scope**: Database seed script (CLI tool).
+* **Proposed Changes**:
+  - Populate 3 initial GK packs into Firestore collection `packs`:
+    1. `world-geography`: 10 questions on capitals, landforms, and borders.
+    2. `science-nature`: 10 questions on physics, biology, and astronomy.
+    3. `history-culture`: 10 questions on world heritage, historical milestones, and art.
+  - Ensures atomic idempotency via Firestore `set(..., merge=True)`.
+
+#### 7. `backend/tests/test_api.py` (Create)
+* **Type / Scope**: Automated test suite (Pytest).
+* **Proposed Changes**:
+  - Test valid token signing and verification.
+  - Test tampering rejection (modified payload, altered duration, invalid signature).
+  - Test expired submission rejection (submission time beyond duration + 15s grace).
+  - Test duration clamping (requesting 5s clamps to 30s; requesting 999s clamps to 300s).
+  - Test score evaluation (perfect score, partial score, empty answers, invalid question IDs).
+
+#### 8. `mobile/pubspec.yaml` (Create/Modify)
+* **Type / Scope**: Flutter package manifest.
+* **Proposed Changes**:
+  - Declare dependencies: `flutter`, `http: ^1.2.0`, `provider: ^6.1.1`.
+  - Declare dev dependencies: `flutter_test`, `flutter_lints: ^3.0.0`.
+
+#### 9. `mobile/lib/models/quiz_models.dart` (Create)
+* **Type / Scope**: Dart data models.
+* **Proposed Changes**:
+  - Implement Dart classes with `fromJson` / `toJson` deserializers matching backend API contracts: `QuizPack`, `Question`, `Option`, `QuizSessionStart`, `SubmitPayload`, `QuizResult`, `ReviewItem`.
+
+#### 10. `mobile/lib/services/api_service.dart` (Create)
+* **Type / Scope**: Flutter HTTP network service.
+* **Proposed Changes**:
+  - Configurable `baseUrl` targeting Cloud Run Functions URL.
+  - `Future<List<QuizPack>> getPacks()`: Fetches quiz pack catalog.
+  - `Future<QuizSessionStart> startQuiz(String packId, int durationSeconds)`: Initiates session.
+  - `Future<QuizResult> submitQuiz(String packId, String sessionToken, Map<String, String> answers)`: Submits responses with automatic retry (up to 2 retries with exponential backoff on network drop).
+
+#### 11. `mobile/lib/controllers/quiz_controller.dart` (Create)
+* **Type / Scope**: Flutter state controller (`ChangeNotifier`).
+* **Proposed Changes**:
+  - State variables: `List<QuizPack> packs`, `QuizPack? selectedPack`, `int selectedDuration`, `int remainingSeconds`, `int currentQuestionIndex`, `Map<String, String> userAnswers`, `QuizResult? result`, `bool isSubmitting`.
+  - Methods: `loadCatalog()`, `selectPack(QuizPack pack)`, `setDuration(int seconds)`, `startQuiz()`, `selectAnswer(String questionId, String optionId)`, `nextQuestion()`, `previousQuestion()`, `tick()`, `submitCurrentQuiz()`.
+  - Countdown timer logic: Triggers `submitCurrentQuiz()` automatically when `remainingSeconds == 0`.
+
+#### 12. `mobile/lib/screens/catalog_screen.dart` (Create)
+* **Type / Scope**: Flutter UI Screen.
+* **Proposed Changes**:
+  - Displays grid/list of 2–3 quiz pack cards showing title, description, and question count.
+  - Tapping a card opens a bottom modal sheet allowing user to pick their timer pace (e.g. 60s Fast, 120s Standard, 180s Relaxed) before tapping "Start Quiz".
+
+#### 13. `mobile/lib/screens/quiz_screen.dart` (Create)
+* **Type / Scope**: Flutter UI Screen.
+* **Proposed Changes**:
+  - Top bar: Visual linear countdown progress bar + numeric timer display with warning colors as time runs low (< 15s).
+  - Question card: Displays question text and 4 selectable option tiles.
+  - Bottom navigation: "Previous", "Next", and "Submit" buttons.
+
+#### 14. `mobile/lib/screens/result_screen.dart` (Create)
+* **Type / Scope**: Flutter UI Screen.
+* **Proposed Changes**:
+  - Header: Score circle indicator (e.g., 8/10, 80%), completion time, and congratulatory feedback text.
+  - Review list: Expandable list showing all questions, indicating user's answer, correct answer, and explanation.
+  - Action button: "Play Another Pack" returning to `CatalogScreen`.
+
+#### 15. `mobile/lib/main.dart` (Create)
+* **Type / Scope**: Flutter Application Entry Point.
+* **Proposed Changes**:
+  - Setup `MaterialApp` with clean, modern quiz theme, multi-provider bindings, and route navigation (`/`, `/quiz`, `/result`).
+
+#### 16. `mobile/test/widget_test.dart` (Create/Modify)
+* **Type / Scope**: Flutter automated widget & unit tests.
+* **Proposed Changes**:
+  - Test pack list rendering on `CatalogScreen`.
+  - Test duration pace picker selection.
+  - Test option selection and question navigation on `QuizScreen`.
+  - Test timer countdown tick and auto-submit trigger on expiration.
+  - Test score and explanation display on `ResultScreen`.
+
+#### 17. `README.md` (Modify)
+* **Type / Scope**: Project documentation.
+* **Proposed Changes**:
+  - Document local development instructions for Flutter (`flutter run`).
+  - Document Cloud Run Functions deployment command (`gcloud functions deploy ...`).
+  - Document database seeding instructions (`python backend/seed.py`).
+
+---
+
+### Unified Implementation Steps
+
+1. **Phase 1: Backend Foundation & Data Seeding**
+   - Setup `backend/requirements.txt` and install virtual environment.
+   - Implement `backend/models.py` with Pydantic request/response structures.
+   - Implement `backend/auth.py` with HMAC-SHA256 signing and expiration checks.
+   - Implement `backend/db.py` for Firestore operations.
+   - Create `backend/seed.py` and populate the 3 curated GK packs into Firestore.
+   - Implement `backend/main.py` routing the 3 Cloud Run Functions endpoints.
+   - Execute Pytest suite in `backend/tests/test_api.py` to verify 100% token security, timer bounds, and scoring logic.
+
+2. **Phase 2: Mobile Client Architecture & State**
+   - Update `mobile/pubspec.yaml` with HTTP and state management dependencies.
+   - Implement `mobile/lib/models/quiz_models.dart`.
+   - Implement `mobile/lib/services/api_service.dart` with network retry logic.
+   - Implement `mobile/lib/controllers/quiz_controller.dart` managing timer ticker, pack selection, and answer map.
+
+3. **Phase 3: Mobile UI Screens & Navigation**
+   - Implement `mobile/lib/screens/catalog_screen.dart` with duration bottom sheet.
+   - Implement `mobile/lib/screens/quiz_screen.dart` with animated countdown bar and option tiles.
+   - Implement `mobile/lib/screens/result_screen.dart` with review breakdowns.
+   - Wire application entry point in `mobile/lib/main.dart`.
+
+4. **Phase 4: Automated Testing, Deployment & Verification**
+   - Run Flutter unit and widget tests (`flutter test`).
+   - Deploy backend to Cloud Run Functions with environment secrets.
+   - Run end-to-end integration test validating a complete quiz run on mobile against deployed functions.
+   - Update `README.md` with complete operator setup guides.
+
+---
+
+### Verification Plan
+
+* **Dependency Updates & Hygiene**:
+  - Python: `pip check && pip-audit` (verify zero known vulnerabilities).
+  - Flutter: `flutter pub get && flutter pub outdated`.
+* **Static Analysis & Linting**:
+  - Python: `flake8 backend/` and `mypy backend/`.
+  - Flutter: `flutter analyze`.
+* **Unit & Integration Tests**:
+  - Backend: `pytest backend/tests/ -v --cov=backend --cov-report=term-missing` (Require >= 90% coverage on auth and scoring).
+  - Mobile: `flutter test --coverage` (Ensure widget selection and timer expiration paths pass).
+* **Compilation & Build**:
+  - Mobile: `flutter build apk --debug` and `flutter build ios --no-codesign` to verify clean builds.
+  - Backend: Cloud Run Functions deployment test (`gcloud functions deploy gk-quiz-api ... --dry-run` or local `functions-framework --target=entry_point`).
+* **E2E Smoke Verification**:
+  - Launch app -> load packs -> pick 60s timer -> answer 10 questions -> submit -> verify results, correct score, and explanations render within 2 seconds.
+
+---
+
+### Future Improvements
+
+* **Global Leaderboards**: Post-MVP anonymous high-score leaderboards using device identifier hashes or optional display names.
+* **Offline Pack Mode**: Encrypted local pack storage with delayed batch score sync for offline flights/commutes.
+* **Multiplayer Trivia Showdown**: Synchronous turn-based or real-time quiz battles using WebSockets / Cloud PubSub.
+
+---
+
+### Open Questions
+
+* **Firestore Region Configuration**: Confirm target GCP project region (e.g., `us-central1` or `europe-west1`) for co-locating Cloud Run Functions and Firestore to minimize latency.
